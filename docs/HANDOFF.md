@@ -2,7 +2,8 @@
 
 このリポジトリ OKB は、`tsumugilabs/elevator-action` の `docs/HANDOFF.md` と
 エンジン（input/entities/level/game/audio）を土台に立ち上げた**別ゲーム**。
-狙撃演出を主役にしたストーリー型スナイパー。設計方針は `docs/DESIGN.md` を参照。
+**護衛対象（＝前作の主人公）を狙撃で守る**ストーリー型シューティング。
+設計方針は `docs/DESIGN.md` を参照。
 
 - 参照元: https://github.com/tsumugilabs/elevator-action
 - 参照元の完成コミット: `63f3a6c`（Elevator Action ブラウザ版）
@@ -11,7 +12,8 @@
 
 - **素の JavaScript + HTML5 Canvas**。ビルド不要、`index.html` を開けば動く。
 - JS は **ES5 風の IIFE**（`(function (global) { ... })(window)`）で `window` に公開
-  （`Sound` / `Input` / `Entities` / `OKB_SCENE` / `OKB_STORY`、本体は `window.__OKB`）。
+  （`Sound` / `Input` / `Entities` / `OKB_SCENE` / `OKB_CUTSCENE` / `OKB_STORY`、
+  本体は `window.__OKB`）。
 - 音は**音声ファイルを持たず** Web Audio API でその場合成（`js/audio.js`）。
 - モバイル対応：ポインタ（タッチ）で照準＆タップ射撃。coarse-pointer 判定あり。
 
@@ -19,32 +21,36 @@
 
 ```
 index.html      … エントリ（HUD・オーバーレイ・<script>読み込み順）
-css/style.css   … スタイル（オーバーレイ / ストーリー / 結果画面）
+css/style.css   … スタイル（オーバーレイ / 結果画面）
 js/audio.js     … 合成SFX・BGM（Sound.play(name) / BGM制御）※前作から移植・再スコア
 js/input.js     … ポインタ照準（Input.aim/takeFire）＋キーボード（advance）
-js/entities.js  … 標的 Mark と AABB ヒットテスト（overlaps / pointIn）
-js/scene.js     … ミッションのシーン背景＋標的スポーン表（前作 level.js の置換）
-js/story.js     … 章立てストーリーデータ
-js/game.js      … メインループ / 状態機械 / 狙撃コア / GUILTY演出（前作から移植）
+js/entities.js  … Escort（自律歩行・HP）＋ Enemy（gunner/rusher）＋ AABB
+js/scene.js     … 護衛ルート＝背景＋出口＋敵スポーン表（前作 level.js の置換）
+js/cutscene.js  … 忍者龍剣伝ライク劇中劇（背景＋立ち絵＋台詞ボックス・タイプライター）
+js/story.js     … 章立ての台本データ（パネル配列）
+js/game.js      … メインループ / 状態機械 / 護衛ループ / 狙撃 / ボスGUILTY演出
 ```
 
-読み込み順は **audio → input → entities → scene → story → game**（依存順）。
+読み込み順は **audio → input → entities → scene → cutscene → story → game**（依存順）。
 
 ## 前作からそのまま流用した仕組み
 
-- **状態機械 + 1本の `tick()`**：`STATE = { MENU, STORY, PLAY, RESULT, OVER, ENDING }`。
-  狙撃演出中（`game.snipe`）はゲーム時間を止める（前作 OKB 13 と同じ作法）。
-- **AABB**：`overlaps` / `pointIn`（`js/entities.js`）をタップ判定に転用。
-- **入力抽象**：アクション名で参照。前作の十字キー→本作はポインタ照準＋タップ。
+- **状態機械 + 1本の `tick()`**：`STATE = { MENU, CUTSCENE, PLAY, RESULT, OVER, ENDING }`。
+  **ボスのギルティ演出中（`game.finisher`）だけ**ゲーム時間を止める（前作 OKB 13 と同じ作法）。
+  通常キルは**時間を止めず**、ボルトアクションの**リロード（`COOLDOWN_MAX`）**で間合いを取る。
+- **AABB**：`overlaps` / `pointIn`（`js/entities.js`）を敵のタップ判定に転用。
+- **入力抽象**：前作の十字キー→本作はポインタ照準（`Input.aim` / `Input.takeFire`）＋タップ。
 - **合成オーディオ**：`Sound.play("snipe")` 等。BGM は音符配列なので採譜で差し替え可。
-- **OKB 狙撃演出**：`drawGuiltyCut` 一式（雲/ハッチング/塔/銃/スナイパー顔/吹き出し）を
-  **画像不使用の純ベクター**のまま移植。演出フェーズは `SNIPE = {zoom,aim,guilty,fire,after}`。
+- **OKB 狙撃演出**：`drawGuiltyCut` 一式を**画像不使用の純ベクター**のまま移植。
+  ただし本作では**ボス（首魁〈鴉〉）を撃つ時だけ**発動（`SNIPE = {zoom,aim,guilty,fire,after}`）。
 
 ## 置き換えた部分
 
-- `level.js`（ビル・エレベーター・階段・重力）→ `scene.js`（1画面シーン＋スポーン表）。
-- 平面アクションの `Player/Enemy/Bullet/moveAndCollide` は不使用。
+- `level.js`（ビル・エレベーター・階段・重力）→ `scene.js`（護衛ルート＋敵スポーン表）。
+- 平面アクションの `Player/Enemy/Bullet/moveAndCollide` は不使用。プレイヤーは操作キャラを持たず、
+  護衛対象 `Escort` が**自律歩行**、敵 `Enemy` を狙撃する。
 - BGM を A-minor 疾走調 → D-minor の静かなスパイ調に再スコア。
+- ストーリー提示を**プレーンなテキスト → Canvas全面の劇中劇（`cutscene.js`）**へ。
 
 ## デプロイ／ビルド運用（前作と同手順）
 

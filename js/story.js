@@ -1,83 +1,91 @@
 /**
- * Story data for OKB — an original spy-noir arc delivered as short briefings
- * between missions. No existing IP; all names and events are invented for this
- * game. `game.js` reads this to drive the STORY overlay and chapter flow.
+ * Story data for OKB — an original escort-sniper arc told through Ninja
+ * Gaiden-style cutscenes (see cutscene.js). No existing IP; all names and
+ * events are invented for this game.
  *
- * Each chapter names a `scene` key (see scene.js) and carries `brief` lines
- * (shown before the mission) and `outro` lines (shown on success).
+ * OKB is a sniper hired to protect an ESCORT — the protagonist of the previous
+ * game (an infiltration agent), who now walks each stage autonomously toward
+ * the exit while OKB clears the threats. The syndicate 〈カゲロウ〉 wants the
+ * agent dead; its head is 〈鴉(からす)〉.
+ *
+ * Each entry is a `{ panels: [...] }` script consumed by OKB_CUTSCENE.make.
+ * A panel is `{ bg, figure?, figureX?, speaker?, text }`.
  */
 (function (global) {
   "use strict";
 
   var Story = {
     title: "OKB",
-    subtitle: "― 標的だけを、確実に ―",
+    subtitle: "― 護衛対象を、狙撃で守れ ―",
 
-    // Shown once at the very start (after START).
-    prologue: [
-      "コードネーム “OKB”。",
-      "誰も本名を知らない、一挺の狙撃銃。",
-      "受ける契約はただひとつ ―― 「有罪」の者だけ。",
-      "今夜も、街のどこかで引き金を待つ者がいる。"
-    ],
+    prologue: { panels: [
+      { bg: "safehouse", speaker: "通信", text: "「OKB。新しい契約だ。今回は“暗殺”じゃない ―― 護衛だ。」" },
+      { bg: "safehouse", figure: "agent", figureX: 300, speaker: "通信",
+        text: "「対象は一人。“エージェント”で通る男。機密を持って街を横断する。」" },
+      { bg: "scope", speaker: "通信", text: "「お前は屋根の上から“露払い”をしろ。奴を出口まで、無傷で通せ。」" },
+      { bg: "scope", speaker: "OKB", text: "「……了解。撃つのは、対象の邪魔をする者だけだ。」" }
+    ]},
 
     chapters: [
       {
         id: 1,
-        title: "第一章　港の受け渡し",
+        title: "第一章　港の脱出艇",
         scene: "harbor",
-        brief: [
-          "深夜の埠頭。密輸組織〈カゲロウ〉の受け渡しが行われる。",
-          "標的は赤い腕章の男 ―― 取引の“帳簿”を持つ会計士。",
-          "港湾労働者を巻き込むな。撃つのは標的だけだ。",
-          "画面をタップ／クリックで狙撃。標的に照準を合わせろ。"
-        ],
-        outro: [
-          "会計士は崩れ落ちた。帳簿は風に散る。",
-          "だが、これは組織の“末端”に過ぎない。",
-          "無線が鳴る ―― 次の契約だ。"
-        ]
+        intro: { panels: [
+          { bg: "harbor_night", figure: "agent", figureX: 150, speaker: "エージェント",
+            text: "「聞こえてるか、狙撃手。俺は港の脱出艇へ向かう。」" },
+          { bg: "harbor_night", figure: "agent", figureX: 150, speaker: "エージェント",
+            text: "「敵がどこから来るかは分からん。……頼りにしてるぞ。」" },
+          { bg: "scope", speaker: "OKB",
+            text: "「歩け。前だけ見ていろ。背後は、俺が撃つ。」" }
+        ]},
+        outro: { panels: [
+          { bg: "harbor_night", figure: "agent", figureX: 360, speaker: "エージェント",
+            text: "「……助かった。噂どおりの腕だな。」" },
+          { bg: "scope", speaker: "OKB", text: "「まだ半分だ。次は気を抜くな。」" }
+        ]}
       },
       {
         id: 2,
-        title: "第二章　夜の歓楽街",
+        title: "第二章　歓楽街の路地",
         scene: "alley",
-        brief: [
-          "ネオンの路地裏。〈カゲロウ〉の実行部隊が動く。",
-          "標的は複数 ―― 赤い腕章の実行犯たちだ。",
-          "人波が多い。市民を撃てば、契約は破談。",
-          "標的は足早だ。逃がす前に、確実に。"
-        ],
-        outro: [
-          "実行犯は一人残らず沈黙した。",
-          "路地に残ったのは、いつもの静けさだけ。",
-          "組織の頭は、あの塔の上にいる。"
-        ]
+        intro: { panels: [
+          { bg: "alley_neon", figure: "agent", figureX: 150, speaker: "エージェント",
+            text: "「ここからは人目が多い。だが敵も、その中に紛れてる。」" },
+          { bg: "alley_neon", speaker: "通信",
+            text: "「〈カゲロウ〉の実行部隊だ。中には構わず突っ込んでくる奴もいる。」" },
+          { bg: "scope", speaker: "OKB", text: "「近づかれる前に、落とす。」" }
+        ]},
+        outro: { panels: [
+          { bg: "alley_neon", figure: "agent", figureX: 360, speaker: "エージェント",
+            text: "「路地を抜けた。……残るは、あの塔だけだ。」" },
+          { bg: "scope", speaker: "OKB", text: "「頭を狙う。“鴉”の首を、な。」" }
+        ]}
       },
       {
         id: 3,
         title: "終章　塔上の首魁",
         scene: "tower",
-        brief: [
-          "摩天楼の屋上。〈カゲロウ〉を統べる男 ―― 通称〈鴉(からす)〉。",
-          "護衛が周囲を固める。標的は、その中心にいる赤い影。",
-          "護衛も市民ではない ―― だが撃つべきは首魁だけだ。",
-          "一発で決めろ。二度目のチャンスはない。"
-        ],
-        outro: [
-          "〈鴉〉は最後まで、こちらを見なかった。",
-          "有罪の判決は、すでに下されていた。",
-          "OKB は銃を畳み、また夜の中へ消える。"
-        ]
+        intro: { panels: [
+          { bg: "rooftop_dusk", figure: "crow", figureX: 380, speaker: "〈鴉〉",
+            text: "「よくぞここまで。だが屋上から先へは、行かせん。」" },
+          { bg: "rooftop_dusk", figure: "agent", figureX: 140, speaker: "エージェント",
+            text: "「ヘリまで走る。狙撃手 ―― 最後の援護を頼む。」" },
+          { bg: "scope", speaker: "OKB", text: "「〈鴉〉。お前が、この夜の“有罪”だ。」" }
+        ]},
+        outro: { panels: [
+          { bg: "rooftop_dusk", figure: "agent", figureX: 360, speaker: "エージェント",
+            text: "「ヘリに乗った。……世話になったな、OKB。」" },
+          { bg: "scope", speaker: "OKB", text: "「達者でな。次の“有罪”が、また俺を呼ぶ。」" }
+        ]}
       }
     ],
 
-    ending: [
-      "―― こうして、ひとつの契約が閉じた。",
-      "街は何も知らないまま、朝を迎える。",
-      "OKB は、次の“有罪”を待っている。",
-      "《 OKB ―― 完 》"
-    ]
+    ending: { panels: [
+      { bg: "harbor_night", text: "―― 夜明け前。街は何も知らないまま、静けさを取り戻す。" },
+      { bg: "scope", speaker: "OKB", text: "「護衛対象、脱出を確認。……契約完了だ。」" },
+      { bg: "black", text: "《 OKB ―― 完 》" }
+    ]}
   };
 
   global.OKB_STORY = Story;

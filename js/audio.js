@@ -84,27 +84,32 @@
   }
 
   var SFX = {
-    // Aiming / firing.
+    // Sniper: a crisp shot then a bolt-action reload cycle.
+    snipe:   function () { noiseBurst(0.12, 0.4);
+                           blip({ type: "sawtooth", f0: 170, f1: 45, dur: 0.35, gain: 0.32 }); },
+    reload:  function () { blip({ type: "square", f0: 300, f1: 180, dur: 0.06, gain: 0.14 });
+                           setTimeout(function () { blip({ type: "square", f0: 220, f1: 320, dur: 0.06, gain: 0.14 }); }, 140); },
     lock:    function () { blip({ type: "square", f0: 1320, dur: 0.05, gain: 0.14 }); },
-    aim:     function () { blip({ type: "sine", f0: 880, f1: 990, dur: 0.08, gain: 0.10 }); },
-    snipe:   function () { noiseBurst(0.14, 0.42);
-                           blip({ type: "sawtooth", f0: 160, f1: 45, dur: 0.4, gain: 0.32 }); },
-    guilty:  function () {   // ominous low stinger for the "GUILTY" cut
+    empty:   function () { blip({ type: "square", f0: 140, dur: 0.05, gain: 0.12 }); }, // firing while reloading
+    // Threats.
+    enemyfire: function () { blip({ type: "sawtooth", f0: 520, f1: 120, dur: 0.14, gain: 0.2 }); noiseBurst(0.06, 0.15); },
+    alert:   function () { blip({ type: "square", f0: 620, dur: 0.08, gain: 0.18 });
+                           setTimeout(function () { blip({ type: "square", f0: 620, dur: 0.08, gain: 0.18 }); }, 120); },
+    hurt:    function () { blip({ type: "sawtooth", f0: 300, f1: 70, dur: 0.4, gain: 0.3 }); }, // escort takes a hit
+    explode: function () { noiseBurst(0.26, 0.32); blip({ type: "sawtooth", f0: 180, f1: 40, dur: 0.26, gain: 0.18 }); },
+    // GUILTY finisher stinger (reserved for boss moments).
+    guilty:  function () {
       blip({ type: "sawtooth", f0: 110, dur: 0.9, gain: 0.22 });
       blip({ type: "sawtooth", f0: 146, dur: 0.9, gain: 0.18 });
       blip({ type: "square", f0: 55, dur: 0.9, gain: 0.16 });
     },
-    explode: function () { noiseBurst(0.28, 0.32); blip({ type: "sawtooth", f0: 180, f1: 40, dur: 0.28, gain: 0.18 }); },
-    // Feedback.
-    miss:    function () { blip({ type: "sawtooth", f0: 440, f1: 55, dur: 0.6, gain: 0.28 }); },
-    wrong:   function () { blip({ type: "square", f0: 200, f1: 90, dur: 0.3, gain: 0.28 });
-                           noiseBurst(0.1, 0.2); },  // civilian misfire — heavy penalty tone
-    escape:  function () { blip({ type: "square", f0: 520, dur: 0.1, gain: 0.2 });
-                           setTimeout(function () { blip({ type: "square", f0: 392, dur: 0.14, gain: 0.2 }); }, 130); },
+    // Flow.
+    arrive:  function () { arpeggio([523, 659, 784], 0.1, "triangle"); }, // escort reaches a checkpoint
     clear:   function () { arpeggio([523, 659, 784, 1047, 1319], 0.14, "square"); },
     over:    function () { arpeggio([392, 330, 262, 196], 0.24, "sawtooth"); },
     win:     function () { arpeggio([523, 659, 784, 1047, 1319, 1568], 0.16, "square"); },
-    ui:      function () { blip({ type: "triangle", f0: 660, dur: 0.06, gain: 0.16 }); }
+    ui:      function () { blip({ type: "triangle", f0: 660, dur: 0.06, gain: 0.16 }); },
+    text:    function () { blip({ type: "square", f0: 880, dur: 0.02, gain: 0.05 }); } // typewriter blip
   };
 
   function play(name) { if (SFX[name]) SFX[name](); }
