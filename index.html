@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>OKB — ストーリー型スナイパー</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d14'/%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%23ff4040' stroke-width='1'/%3E%3Cline x1='8' y1='1' x2='8' y2='15' stroke='%23ff4040' stroke-width='1'/%3E%3Cline x1='1' y1='8' x2='15' y2='8' stroke='%23ff4040' stroke-width='1'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="game-wrapper">
+    <header id="hud">
+      <span class="hud-item">CH <b id="hud-mission">1</b>/3</span>
+      <span class="hud-item">SCORE <b id="hud-score">0</b></span>
+      <span class="hud-item">HI <b id="hud-hi">0</b></span>
+      <span class="hud-item">標的 <b id="hud-targets">0</b>/<b id="hud-targets-total">0</b></span>
+      <span class="hud-item">カバー <b id="hud-cover">3</b></span>
+      <span class="hud-item">残り <b id="hud-time">0</b>s</span>
+      <button id="sound-toggle" type="button" title="サウンド ON/OFF (M)">🔊</button>
+    </header>
+
+    <div id="stage">
+      <canvas id="game" width="512" height="480"></canvas>
+
+      <div id="overlay" class="overlay menu">
+        <h1>OKB</h1>
+        <p class="subtitle">― 標的だけを、確実に ―</p>
+        <p class="lede">読み込み中…</p>
+      </div>
+    </div>
+
+    <p id="hint">画面をタップ／クリックで照準＆射撃 ／ 赤い標的だけを撃つ ／ M: サウンド</p>
+  </div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
