@@ -62,15 +62,25 @@ python3 -m http.server 8000
 # もしくは index.html を直接開く
 ```
 
-## テストプレイ用・単一ステージ版
+## 単一HTMLビルド（配布・Artifact用）
 
-1ステージだけを通しで遊べる**自己完結の単一HTML**を同梱しています
-（コンテナヤード／ガンナー＋ラッシャー＋ボスのGUILTY演出まで一気に体験）。
+外部依存ゼロの**自己完結HTML**を生成できます（そのまま開けば遊べる／Artifact公開可）。
 
-- `teststage.html` … そのままブラウザで開けば遊べる（外部依存なし）。
-- 再ビルド： `node tools/build-teststage.js`
-  （`css` と `js/*` ＋ `test/okb-teststage.js` をインラインして
-  `teststage.html` と、Artifact 公開用の本文フラグメント `teststage.artifact.html` を生成）。
+- **本編（全3章）**： `node tools/build-single.js`
+  → `okb.html`（スタンドアロン）と `okb.artifact.html`（Artifact本文フラグメント）を生成。
+- **テストプレイ用・単一ステージ**： `node tools/build-teststage.js`
+  → `teststage.html` と `teststage.artifact.html`（コンテナヤード＋ボス演出の1ステージ）。
+
+## 難易度カーブ（本編3章）
+
+| 章 | 護衛速度 | 護衛HP | 敵構成 |
+| --- | --- | --- | --- |
+| 第一章 港 | 0.45 | 6 | ガンナー5（間隔広め・リロードの練習） |
+| 第二章 歓楽街 | 0.48 | 6 | ガンナー5＋ラッシャー3（同時脅威が増える） |
+| 終章 塔上 | 0.44 | 6 | ガンナー5＋ラッシャー3＋ボス〈鴉〉（GUILTY） |
+
+いずれも1画面完結で ~17〜20秒／章。テンポは `game.js` の `COOLDOWN_MAX`（リロード）、
+難度は各章の `escortSpeed / escortHp / spawns`（`scene.js`）で調整できます。
 
 ## 構成
 

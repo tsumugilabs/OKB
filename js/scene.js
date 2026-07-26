@@ -127,47 +127,58 @@
 
   // ---- Scene table --------------------------------------------------------
 
+  // Difficulty curve across the campaign:
+  //  Ch1 gunners only, well spaced — teaches the aim/reload rhythm.
+  //  Ch2 adds rushers and lets threats overlap.
+  //  Ch3 is dense (gunners + rushers) and ends on the boss 〈鴉〉 (GUILTY finisher).
   var SCENES = {
     harbor: {
       name: "港 ―― 脱出艇まで",
       ground: 372,
       startX: 24, exitX: 486, exit: "boat",
-      escortSpeed: 0.5, escortHp: 5,
+      escortSpeed: 0.45, escortHp: 6,
       drawBg: drawHarbor,
       spawns: [
-        { t: 130, x: 300, type: "gunner", dir: -1 },
-        { t: 300, x: 430, type: "gunner", dir: -1 },
-        { t: 470, x: 210, type: "gunner", dir: 1 },
-        { t: 650, x: 440, type: "gunner", dir: -1 }
+        { t: 100, x: 300, type: "gunner", dir: -1 },
+        { t: 260, x: 420, type: "gunner", dir: -1 },
+        { t: 430, x: 180, type: "gunner", dir: 1 },
+        { t: 600, x: 440, type: "gunner", dir: -1 },
+        { t: 780, x: 260, type: "gunner", dir: -1 }
       ]
     },
     alley: {
       name: "歓楽街 ―― 路地を抜けて",
       ground: 392,
       startX: 24, exitX: 486, exit: "door",
-      escortSpeed: 0.55, escortHp: 5,
+      escortSpeed: 0.48, escortHp: 6,
       drawBg: drawAlley,
       spawns: [
-        { t: 90,  x: 340, type: "gunner", dir: -1 },
-        { t: 210, side: "right", type: "rusher", speed: 0.95 },
-        { t: 340, x: 260, type: "gunner", dir: -1 },
-        { t: 450, side: "left",  type: "rusher", speed: 1.0 },
-        { t: 560, x: 430, type: "gunner", dir: -1 },
-        { t: 660, side: "right", type: "rusher", speed: 1.05 }
+        { t: 80,  x: 340, type: "gunner", dir: -1 },
+        { t: 180, side: "right", type: "rusher", speed: 0.95 },
+        { t: 300, x: 250, type: "gunner", dir: -1 },
+        { t: 400, x: 430, type: "gunner", dir: -1 },
+        { t: 500, side: "left",  type: "rusher", speed: 1.0 },
+        { t: 620, x: 360, type: "gunner", dir: -1 },
+        { t: 720, side: "right", type: "rusher", speed: 1.05 },
+        { t: 820, x: 300, type: "gunner", dir: -1 }
       ]
     },
     tower: {
       name: "塔上 ―― 首魁の狙撃",
       ground: 372,
       startX: 24, exitX: 486, exit: "heli",
-      escortSpeed: 0.5, escortHp: 5,
+      escortSpeed: 0.44, escortHp: 6,
       drawBg: drawTower,
       spawns: [
-        { t: 100, x: 300, type: "gunner", dir: -1 },
-        { t: 230, side: "right", type: "rusher", speed: 1.0 },
-        { t: 360, x: 360, type: "gunner", dir: -1 },
-        { t: 470, side: "left",  type: "rusher", speed: 1.05 },
-        { t: 590, x: 432, type: "gunner", dir: -1, boss: true }
+        { t: 80,  x: 300, type: "gunner", dir: -1 },
+        { t: 170, side: "right", type: "rusher", speed: 1.0 },
+        { t: 280, x: 380, type: "gunner", dir: -1 },
+        { t: 360, side: "left",  type: "rusher", speed: 1.05 },
+        { t: 470, x: 210, type: "gunner", dir: 1 },
+        { t: 560, side: "right", type: "rusher", speed: 1.1 },
+        { t: 670, x: 420, type: "gunner", dir: -1 },
+        { t: 770, side: "left",  type: "rusher", speed: 1.1 },
+        { t: 860, x: 432, type: "gunner", dir: -1, boss: true }
       ]
     }
   };
