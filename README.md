@@ -62,6 +62,16 @@ python3 -m http.server 8000
 # もしくは index.html を直接開く
 ```
 
+## テストプレイ用・単一ステージ版
+
+1ステージだけを通しで遊べる**自己完結の単一HTML**を同梱しています
+（コンテナヤード／ガンナー＋ラッシャー＋ボスのGUILTY演出まで一気に体験）。
+
+- `teststage.html` … そのままブラウザで開けば遊べる（外部依存なし）。
+- 再ビルド： `node tools/build-teststage.js`
+  （`css` と `js/*` ＋ `test/okb-teststage.js` をインラインして
+  `teststage.html` と、Artifact 公開用の本文フラグメント `teststage.artifact.html` を生成）。
+
 ## 構成
 
 ```
