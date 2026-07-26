@@ -24,8 +24,8 @@ index.html      … エントリ（HUD・オーバーレイ・<script>読み込�
 css/style.css   … スタイル（オーバーレイ / 結果画面）
 js/audio.js     … 合成SFX・BGM（Sound.play(name) / BGM制御）※前作から移植・再スコア
 js/input.js     … ポインタ照準（Input.aim/takeFire）＋キーボード（advance）
-js/entities.js  … Escort（自律歩行・HP）＋ Enemy（gunner/rusher）＋ AABB
-js/scene.js     … 護衛ルート＝背景＋出口＋敵スポーン表（前作 level.js の置換）
+js/entities.js  … Escort（自律歩行・HP）＋ Enemy（gunner近接起動/rusher）＋ Traitor（物陰移動）＋ AABB
+js/scene.js     … ステージ＝ワールド幅の背景＋敵スポーン表(escort)／物陰(hunt)（level.js の置換）
 js/cutscene.js  … 忍者龍剣伝ライク劇中劇（背景＋立ち絵＋台詞ボックス・タイプライター）
 js/story.js     … 章立ての台本データ（パネル配列）
 js/game.js      … メインループ / 状態機械 / 護衛ループ / 狙撃 / ボスGUILTY演出
@@ -43,6 +43,18 @@ js/game.js      … メインループ / 状態機械 / 護衛ループ / 狙撃
 - **合成オーディオ**：`Sound.play("snipe")` 等。BGM は音符配列なので採譜で差し替え可。
 - **OKB 狙撃演出**：`drawGuiltyCut` 一式を**画像不使用の純ベクター**のまま移植。
   ただし本作では**ボス（首魁〈鴉〉）を撃つ時だけ**発動（`SNIPE = {zoom,aim,guilty,fire,after}`）。
+
+## スクロールと狩り（この版で追加）
+
+- **横スクロールカメラ**：全座標はワールド座標。`game.camX` が対象を追従し
+  `[0, worldW-画面幅]` にクランプ。描画は `translate(-camX)`、タップは
+  `world = screen + camX` に変換。`drawScope` も `-camX` で画面座標に直す。
+- **ガンナーの近接起動**：`Enemy.range`（既定260）内に護衛対象が入るまでアイム
+  しない（画面外からの理不尽な発砲を防止）。
+- **hunt モード（終章）**：`scene.mode==="hunt"`。`Entities.Traitor` が
+  `hide→peek→dash` で物陰を渡って `escapeX` へ逃走。露出中のみ被弾し、当てると
+  GUILTY 決着 → `missionClear`。逃がすと `missionFail`。物陰は描画順でオクルージョン。
+- QA用フック：`window.__OKB.debugStart(i)` で任意章のミッションへ即ジャンプ。
 
 ## 置き換えた部分
 

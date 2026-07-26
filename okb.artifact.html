@@ -183,7 +183,7 @@ button.secondary { background: #26303f; color: var(--ink); }
 </style>
   <div id="game-wrapper">
     <header id="hud">
-      <span class="hud-item">CH <b id="hud-mission">1</b>/3</span>
+      <span class="hud-item">CH <b id="hud-mission">1</b>/4</span>
       <span class="hud-item">SCORE <b id="hud-score">0</b></span>
       <span class="hud-item">HI <b id="hud-hi">0</b></span>
       <span class="hud-item">護衛HP <b id="hud-hp">-</b>/<b id="hud-hp-max">-</b></span>
@@ -478,164 +478,115 @@ button.secondary { background: #26303f; color: var(--ink); }
  * Game actors for OKB and shared helpers.
  *
  * OKB is an escort-sniper game: the player never moves a character on the
- * ground. Instead an ESCORT (the protagonist of the previous game, now under
- * OKB's protection) walks autonomously toward the exit, and ENEMIES appear to
- * stop them. The player is the sniper overhead who taps enemies to remove them
- * before they can harm the escort.
+ * ground. An ESCORT (the previous game's protagonist, now protected) walks
+ * autonomously to the exit; ENEMIES appear to stop them; the player is the
+ * sniper overhead. In the finale the escort turns TRAITOR and becomes a hunt
+ * target that darts cover-to-cover.
  *
- * Carried over from the Elevator Action engine: the AABB `overlaps`/point-hit
- * helpers and the `px` pixel-sprite primitive. The platformer physics
- * (moveAndCollide, gravity, elevators) are dropped.
+ * Carried over from the Elevator Action engine: AABB `overlaps`/point-hit and
+ * the `px` pixel-sprite primitive. All world coordinates (the camera scrolls).
  */
 (function (global) {
   "use strict";
-
-  // ---- AABB / hit-test helpers -------------------------------------------
 
   function overlaps(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x &&
            a.y < b.y + b.h && a.y + a.h > b.y;
   }
-
   function pointIn(px, py, r, pad) {
     pad = pad || 0;
     return px >= r.x - pad && px <= r.x + r.w + pad &&
            py >= r.y - pad && py <= r.y + r.h + pad;
   }
+  function px(ctx, x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(x | 0, y | 0, w, h); }
 
-  function px(ctx, x, y, w, h, color) {
-    ctx.fillStyle = color;
-    ctx.fillRect(x | 0, y | 0, w, h);
-  }
-
-  // ---- Escort: the previous game's protagonist, walking to the exit -------
+  // ---- Escort: the previous game's protagonist ---------------------------
 
   var ESC_W = 16, ESC_H = 36;
 
   function Escort(opts) {
-    this.w = ESC_W;
-    this.h = ESC_H;
+    this.w = ESC_W; this.h = ESC_H;
     this.speed = opts.speed != null ? opts.speed : 0.5;
     this.x = opts.x;
-    this.baseY = opts.y - this.h;      // feet rest on ground line `y`
+    this.baseY = opts.y - this.h;
     this.y = this.baseY;
-    this.dir = 1;
-    this.walk = 0;
-    this.maxHp = opts.hp || 5;
-    this.hp = this.maxHp;
-    this.hurtFlash = 0;
-    this.stunned = 0;                  // brief pause after being hit
-    this.arrived = false;
+    this.dir = 1; this.walk = 0;
+    this.maxHp = opts.hp || 5; this.hp = this.maxHp;
+    this.hurtFlash = 0; this.stunned = 0; this.arrived = false;
   }
-
   Escort.prototype.update = function (exitX) {
     if (this.hurtFlash > 0) this.hurtFlash--;
-    if (this.stunned > 0) { this.stunned--; }
+    if (this.stunned > 0) this.stunned--;
     else { this.x += this.speed; this.walk += this.speed + 0.15; }
     this.y = this.baseY + Math.sin(this.walk * 0.9) * 1.0;
     if (this.x + this.w / 2 >= exitX) this.arrived = true;
   };
+  Escort.prototype.hurt = function () { this.hp--; this.hurtFlash = 26; this.stunned = 20; };
+  Escort.prototype.rect = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
+  Escort.prototype.draw = function (ctx) { drawAgent(ctx, this.x, this.y, this.hurtFlash > 0 && (this.hurtFlash >> 2) % 2 === 0, false); };
 
-  Escort.prototype.hurt = function () {
-    this.hp--;
-    this.hurtFlash = 26;
-    this.stunned = 20;
-  };
-
-  Escort.prototype.rect = function () {
-    return { x: this.x, y: this.y, w: this.w, h: this.h };
-  };
-
-  Escort.prototype.draw = function (ctx) {
-    var x = this.x, y = this.y;
-    var flash = this.hurtFlash > 0 && (this.hurtFlash >> 2) % 2 === 0;
-    var coat = flash ? "#ffffff" : "#2f4a6b";   // trench coat (spy blue)
+  // A shared fedora-and-trench sprite. `traitor` recolours it as hostile.
+  function drawAgent(ctx, x, y, flash, traitor, walk) {
+    var coat = flash ? "#ffffff" : (traitor ? "#3a2a2f" : "#2f4a6b");
     var skin = flash ? "#ffffff" : "#e7c8a0";
-    var stride = Math.sin(this.walk) * 2.4;
-    // Legs.
+    var stride = Math.sin((walk || 0)) * 2.2;
     px(ctx, x + 3, y + 28, 4, 8 - Math.max(0, stride), "#20252e");
     px(ctx, x + 9, y + 28, 4, 8 - Math.max(0, -stride), "#20252e");
-    // Trench coat.
     px(ctx, x + 2, y + 13, 12, 16, coat);
-    px(ctx, x + 1, y + 26, 14, 4, coat);        // coat skirt
-    // Arms.
+    px(ctx, x + 1, y + 26, 14, 4, coat);
     px(ctx, x, y + 14, 3, 11, coat);
     px(ctx, x + 13, y + 14, 3, 11, coat);
-    // Head + fedora (the previous protagonist's silhouette).
     px(ctx, x + 4, y + 3, 8, 9, skin);
-    px(ctx, x + 2, y + 1, 12, 3, flash ? "#ffffff" : "#1c2129"); // hat brim
-    px(ctx, x + 4, y - 2, 8, 4, flash ? "#ffffff" : "#232a34");   // hat crown
-    // A faint blue protectee marker ring at the feet.
-    ctx.save();
-    ctx.globalAlpha = 0.4;
-    ctx.strokeStyle = "#5aa0ff"; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.ellipse(x + this.w / 2, y + this.h - 1, 11, 3, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  };
-
-  // ---- Enemy: gunner (ranged) or rusher (melee) ---------------------------
-
-  var EN_W = 16, EN_H = 32;
-  // Phase budgets (frames @60fps).
-  var EMERGE = 16;
-  var GUN_AIM = 78;          // telegraph before a gunner fires
-  var BOSS_AIM = 150;        // the boss winds up longer (dramatic)
-
-  function Enemy(opts) {
-    this.w = EN_W;
-    this.h = EN_H;
-    this.type = opts.type || "gunner";
-    this.boss = !!opts.boss;
-    this.x = opts.x;
-    this.baseY = opts.y - this.h;
-    this.y = this.baseY;
-    this.dir = opts.dir || -1;         // facing
-    this.speed = opts.speed != null ? opts.speed : 0.95; // rushers
-    this.timer = 0;
-    this.dead = false;
-    this.gone = false;                 // left the field harmlessly
-    this.phase = "emerge";
-    this.charge = 0;                   // 0..1 telegraph progress (gunner)
-    this.aimTime = this.boss ? BOSS_AIM : GUN_AIM;
-    this.run = 0;                      // rusher animation
+    px(ctx, x + 2, y + 1, 12, 3, flash ? "#ffffff" : "#1c2129");
+    px(ctx, x + 4, y - 2, 8, 4, flash ? "#ffffff" : "#232a34");
+    if (traitor) { px(ctx, x, y + 15, 3, 4, "#d23b3b"); px(ctx, x + 4, y, 8, 1, "#d23b3b"); } // red band = now a target
   }
 
-  Enemy.prototype.aiming = function () {
-    return this.type === "gunner" && this.phase === "aim";
-  };
+  // ---- Enemy: gunner (ranged, proximity-activated) or rusher (melee) -----
 
-  /** Advance; returns an event: "fire" (gunner shot), "contact" (rusher hit), or null. */
-  Enemy.prototype.update = function (escort) {
+  var EN_W = 16, EN_H = 32;
+  var EMERGE = 16, GUN_AIM = 78, BOSS_AIM = 150;
+
+  function Enemy(opts) {
+    this.w = EN_W; this.h = EN_H;
+    this.type = opts.type || "gunner";
+    this.boss = !!opts.boss;
+    this.x = opts.x; this.baseY = opts.y - this.h; this.y = this.baseY;
+    this.dir = opts.dir || -1;
+    this.speed = opts.speed != null ? opts.speed : 0.95;
+    this.range = opts.range || 260;      // gunner activation distance (nearer = fewer active at once)
+    this.timer = 0; this.aimT = 0;
+    this.dead = false; this.gone = false;
+    this.phase = "emerge";
+    this.charge = 0;
+    this.aimTime = this.boss ? BOSS_AIM : GUN_AIM;
+    this.run = 0;
+  }
+  Enemy.prototype.aiming = function () { return this.type === "gunner" && this.phase === "aim"; };
+
+  /** Advance; returns "fire" (gunner shot), "contact" (rusher hit), or null. */
+  Enemy.prototype.update = function (target) {
     this.timer++;
+    var tc = target.x + target.w / 2, cc = this.x + this.w / 2;
     if (this.type === "gunner") {
       if (this.timer < EMERGE) { this.phase = "emerge"; this.y = this.baseY + (EMERGE - this.timer); return null; }
       this.y = this.baseY;
-      var at = this.timer - EMERGE;
-      if (at < this.aimTime) {
-        this.phase = "aim";
-        this.charge = at / this.aimTime;
-        return null;
-      }
-      // Fire, then wind up again for the next shot.
-      this.phase = "fire";
-      this.timer = EMERGE;
-      this.charge = 0;
-      return "fire";
+      this.dir = tc < cc ? -1 : 1;
+      if (Math.abs(tc - cc) > this.range) { this.phase = "wait"; return null; } // idle until target nears
+      this.aimT++;
+      this.phase = "aim";
+      this.charge = this.aimT / this.aimTime;
+      if (this.aimT >= this.aimTime) { this.aimT = 0; this.charge = 0; this.phase = "fire"; return "fire"; }
+      return null;
     }
-    // Rusher: emerge, then run toward the escort's centre.
+    // Rusher.
     if (this.timer < EMERGE) { this.phase = "emerge"; return null; }
-    this.phase = "run";
-    this.run += this.speed;
-    var tx = escort.x + escort.w / 2;
-    var cx = this.x + this.w / 2;
-    this.dir = tx < cx ? -1 : 1;
+    this.phase = "run"; this.run += this.speed;
+    this.dir = tc < cc ? -1 : 1;
     this.x += this.dir * this.speed;
-    if (Math.abs((this.x + this.w / 2) - tx) < 12) { this.dead = true; return "contact"; }
+    if (Math.abs((this.x + this.w / 2) - tc) < 12) { this.dead = true; return "contact"; }
     return null;
   };
-
   Enemy.prototype.rect = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
   Enemy.prototype.hit = function (px, py) { return !this.dead && pointIn(px, py, this.rect(), 5); };
 
@@ -644,94 +595,152 @@ button.secondary { background: #26303f; color: var(--ink); }
     var accent = this.boss ? "#ff9a2a" : "#d23b3b";
     var coat = this.boss ? "#1a1520" : "#242832";
     if (this.type === "rusher") {
-      // Lean forward in the run direction.
-      var lean = this.dir * 2;
-      var s = Math.sin(this.run * 0.6) * 3;
+      var lean = this.dir * 2, s = Math.sin(this.run * 0.6) * 3;
       px(ctx, x + 3, y + 26, 4, 6 - Math.max(0, s), "#15181f");
       px(ctx, x + 9, y + 26, 4, 6 - Math.max(0, -s), "#15181f");
       px(ctx, x + 2 + lean, y + 12, 12, 15, coat);
       px(ctx, x + 4 + lean, y + 2, 8, 9, "#e7c8a0");
-      px(ctx, x + 4 + lean, y + 1, 8, 3, accent);          // red band
-      // outstretched arm (menace).
+      px(ctx, x + 4 + lean, y + 1, 8, 3, accent);
       px(ctx, x + (this.dir > 0 ? 13 : -1) + lean, y + 13, 4, 3, coat);
     } else {
-      // Gunner: standing, rifle raised while aiming.
       px(ctx, x + 3, y + 26, 4, 6, "#15181f");
       px(ctx, x + 9, y + 26, 4, 6, "#15181f");
       px(ctx, x + 2, y + 12, 12, 15, coat);
       px(ctx, x + 4, y + 2, 8, 9, "#e7c8a0");
-      px(ctx, x + 4, y + 1, 8, 3, accent);                 // red cap band
-      // Rifle, pointed toward the escort side (dir).
+      px(ctx, x + 4, y + 1, 8, 3, accent);
       var gx = this.dir > 0 ? x + 14 : x - 8;
       px(ctx, gx, y + 14, 10, 2, "#0e1116");
-      // Telegraph: an intensifying warning as the shot charges.
       if (this.phase === "aim") {
         var hot = this.charge > 0.7;
         ctx.save();
         ctx.globalAlpha = 0.5 + this.charge * 0.5;
         ctx.fillStyle = hot ? "#ff3030" : "#ffd166";
-        ctx.font = "bold 16px 'Courier New', monospace";
-        ctx.textAlign = "center";
+        ctx.font = "bold 16px 'Courier New', monospace"; ctx.textAlign = "center";
         ctx.fillText("!", x + this.w / 2, y - 4);
-        ctx.restore();
-        ctx.textAlign = "left";
+        ctx.restore(); ctx.textAlign = "left";
       }
     }
     if (this.boss) {
-      // A subtle crown-ring so the boss reads as the finisher target.
-      ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
+      ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.ellipse(x + this.w / 2, y + this.h - 1, 12, 3.5, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
     }
   };
 
+  // ---- Traitor: the hunt target — hides cover-to-cover -------------------
+
+  var TR_W = 16, TR_H = 36;
+  var HIDE_T = 84, PEEK_T = 56, DASH_SPEED = 2.5;
+
+  function hidePos(c) { return c - TR_W / 2; }     // tucked behind the pillar
+  function peekPos(c) { return c - 38; }           // stepped out to the left, exposed
+
+  function Traitor(opts) {
+    this.w = TR_W; this.h = TR_H;
+    this.covers = opts.covers.slice();
+    this.escapeX = opts.escapeX;
+    this.idx = 0;
+    this.baseY = opts.y - this.h; this.y = this.baseY;
+    this.x = hidePos(this.covers[0]);
+    this.state = "hide"; this.timer = 0;
+    this.exposed = false; this.dead = false; this.escaped = false;
+    this.walk = 0; this.dashTargetX = 0; this.hp = 1;
+  }
+
+  Traitor.prototype._startDash = function () {
+    var next = this.idx + 1 <= this.covers.length - 1 ? this.covers[this.idx + 1] : null;
+    this.dashTargetX = next != null ? hidePos(next) : this.escapeX + 40;
+    this.state = "dash"; this.timer = 0;
+  };
+
+  /** Returns "escaped" once the traitor slips past the escape point. */
+  Traitor.prototype.update = function () {
+    this.timer++;
+    if (this.state === "hide") {
+      this.exposed = false;
+      this.x = hidePos(this.covers[this.idx]);
+      if (this.timer >= HIDE_T) { this.state = "peek"; this.timer = 0; }
+    } else if (this.state === "peek") {
+      this.exposed = true;
+      this.x = peekPos(this.covers[this.idx]);
+      this.y = this.baseY + Math.sin(this.timer * 0.18) * 0.8;   // small nervous sway
+      if (this.timer >= PEEK_T) this._startDash();
+    } else if (this.state === "dash") {
+      this.exposed = true;
+      this.walk += DASH_SPEED;
+      this.x += DASH_SPEED;
+      this.y = this.baseY + Math.abs(Math.sin(this.walk * 0.4)) * -2;  // running bob
+      if (this.x >= this.dashTargetX) {
+        if (this.idx + 1 <= this.covers.length - 1) { this.idx++; this.state = "hide"; this.timer = 0; }
+        else { this.escaped = true; }
+      }
+    }
+    if (this.escaped) return "escaped";
+    return null;
+  };
+
+  Traitor.prototype.rect = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
+  Traitor.prototype.hit = function (px, py) { return this.exposed && !this.dead && pointIn(px, py, this.rect(), 5); };
+  Traitor.prototype.draw = function (ctx) {
+    drawAgent(ctx, this.x, this.y, false, true, this.state === "dash" ? this.walk : 0);
+    if (this.exposed) {   // faint hostile ring so an exposed traitor reads at a glance
+      ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = "#ff5a5a"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(this.x + this.w / 2, this.y + this.h - 1, 11, 3, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+  };
+
   global.Entities = {
-    Escort: Escort,
-    Enemy: Enemy,
-    overlaps: overlaps,
-    pointIn: pointIn,
-    px: px,
-    ESC_W: ESC_W, ESC_H: ESC_H,
-    EN_W: EN_W, EN_H: EN_H
+    Escort: Escort, Enemy: Enemy, Traitor: Traitor,
+    overlaps: overlaps, pointIn: pointIn, px: px, drawAgent: drawAgent,
+    ESC_W: ESC_W, ESC_H: ESC_H, EN_W: EN_W, EN_H: EN_H
   };
 })(window);
 
 /**
- * Mission scenes for OKB — the escort's route and the enemies that ambush it.
+ * Mission scenes for OKB — the escort's route (and, in the finale, the hunt).
  * This replaces the platformer's level.js.
  *
- * A scene owns: a hand-drawn vector background, the ground line the escort and
- * enemies stand on, the escort's start/exit x, and a spawn schedule (a table of
- * {t, x|side, type, dir, boss} the game turns into `Entities.Enemy`s over time).
- * All art is original vector drawing (no external images) so the page works
- * offline / in a sandbox. Each stage plays on a single 512x480 screen.
+ * Stages now span a WORLD wider than the screen; the game scrolls a horizontal
+ * camera to follow the escort/target. A scene owns: a vector background drawn
+ * across `worldW`, the ground line, the escort's start/exit x, and either a
+ * spawn schedule (escort stages) or a cover list (the "hunt" finale).
+ *
+ * Two stage modes:
+ *  - "escort": the escort walks start -> exit; enemies ambush; protect them.
+ *  - "hunt":   a traitor darts cover-to-cover toward an escape; snipe them in
+ *              the open before they get away.
+ *
+ * All art is original vector drawing (no images) so it runs offline / sandboxed.
+ * Coordinates assume a 512x480 viewport (VIEW).
  */
 (function (global) {
   "use strict";
 
-  var W = 512, H = 480;
+  var VIEW = 512, H = 480;
 
-  function starField(ctx, n, y0, y1) {
+  // ---- shared background helpers (parametric over world width) -----------
+
+  function starField(ctx, worldW, step, y0, y1) {
     ctx.fillStyle = "rgba(220,228,245,0.7)";
-    for (var i = 0; i < n; i++) {
-      var x = (i * 97 % W);
-      var y = y0 + (i * 53 % (y1 - y0));
+    for (var x = 0; x < worldW; x += step) {
+      var y = y0 + ((x * 53) % (y1 - y0));
       ctx.fillRect(x, y, 1, 1);
     }
   }
 
-  function skyline(ctx, baseY, color) {
+  function skyline(ctx, worldW, baseY, color) {
     ctx.fillStyle = color;
-    var bx = [-10, 40, 96, 150, 210, 268, 330, 400, 460, 512];
-    var bh = [120, 175, 96, 150, 110, 168, 120, 150, 96, 140];
-    for (var c = 0; c < bx.length - 1; c++) {
-      ctx.fillRect(bx[c], baseY - bh[c], (bx[c + 1] - bx[c]) - 4, bh[c] + 40);
+    var seed = [120, 175, 96, 150, 110, 168, 120, 150, 96, 140, 132, 104];
+    var x = -10, i = 0;
+    while (x < worldW + 10) {
+      var w = 46 + (i % 4) * 14, h = seed[i % seed.length];
+      ctx.fillRect(x, baseY - h, w - 4, h + 40);
+      x += w; i++;
     }
     ctx.fillStyle = "rgba(210,220,250,0.35)";
     for (var wy = baseY - 150; wy < baseY - 10; wy += 12)
-      for (var wx = 8; wx < W; wx += 14)
+      for (var wx = 8; wx < worldW; wx += 14)
         if ((wx * 3 + wy) % 5 === 0) ctx.fillRect(wx, wy, 3, 4);
   }
 
@@ -748,27 +757,25 @@ button.secondary { background: #26303f; color: var(--ink); }
     ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, gy, 70, 26, 0, 0, Math.PI * 2); ctx.fill();
   }
 
-  // ---- Backgrounds --------------------------------------------------------
+  // ---- backgrounds --------------------------------------------------------
 
-  function drawHarbor(ctx) {
+  function drawHarbor(ctx, worldW) {
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#0a1020"); g.addColorStop(0.6, "#0e1830"); g.addColorStop(1, "#0b111f");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    starField(ctx, 90, 8, 180);
-    skyline(ctx, 300, "#111a2e");
-    // Water band.
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    starField(ctx, worldW, 6, 8, 180);
+    skyline(ctx, worldW, 300, "#111a2e");
     var w = ctx.createLinearGradient(0, 320, 0, 360);
     w.addColorStop(0, "#0d1a30"); w.addColorStop(1, "#0a1526");
-    ctx.fillStyle = w; ctx.fillRect(0, 320, W, 40);
+    ctx.fillStyle = w; ctx.fillRect(0, 320, worldW, 40);
     ctx.fillStyle = "rgba(120,150,210,0.18)";
-    for (var i = 0; i < 20; i++) ctx.fillRect((i * 61) % W, 326 + (i % 4) * 7, 18, 1);
-    // Pier.
-    ctx.fillStyle = "#20242c"; ctx.fillRect(0, 372, W, H - 372);
-    ctx.fillStyle = "#2a2f38"; ctx.fillRect(0, 372, W, 5);
+    for (var i = 0; i * 61 < worldW; i++) ctx.fillRect((i * 61) % worldW, 326 + (i % 4) * 7, 18, 1);
+    ctx.fillStyle = "#20242c"; ctx.fillRect(0, 372, worldW, H - 372);
+    ctx.fillStyle = "#2a2f38"; ctx.fillRect(0, 372, worldW, 5);
     ctx.strokeStyle = "#171a20"; ctx.lineWidth = 2;
-    for (var pxx = 0; pxx < W; pxx += 40) { ctx.beginPath(); ctx.moveTo(pxx, 378); ctx.lineTo(pxx, H); ctx.stroke(); }
-    crate(ctx, 120, 338, 34); crate(ctx, 300, 338, 34); crate(ctx, 334, 338, 34);
-    lampPool(ctx, 150, 372); lampPool(ctx, 380, 372);
+    for (var px = 0; px < worldW; px += 40) { ctx.beginPath(); ctx.moveTo(px, 378); ctx.lineTo(px, H); ctx.stroke(); }
+    for (var cx = 120; cx < worldW; cx += 300) { crate(ctx, cx, 338, 34); crate(ctx, cx + 34, 338, 34); }
+    for (var lx = 150; lx < worldW; lx += 260) lampPool(ctx, lx, 372);
   }
 
   function neon(ctx, x, y, w, h, color, label) {
@@ -782,115 +789,123 @@ button.secondary { background: #26303f; color: var(--ink); }
     ctx.restore();
   }
 
-  function drawAlley(ctx) {
+  function drawAlley(ctx, worldW) {
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#160a1e"); g.addColorStop(1, "#0c0713");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#1a1424"; ctx.fillRect(0, 40, W, 320);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    ctx.fillStyle = "#1a1424"; ctx.fillRect(0, 40, worldW, 352);
     for (var wy = 60; wy < 340; wy += 22)
-      for (var wx = 12; wx < W; wx += 26)
+      for (var wx = 12; wx < worldW; wx += 26)
         if ((wx + wy) % 3 === 0) { ctx.fillStyle = "rgba(255,196,120,0.5)"; ctx.fillRect(wx, wy, 10, 12); }
-    neon(ctx, 40, 90, 120, 26, "#ff3b7b", "夜");
-    neon(ctx, 330, 120, 150, 24, "#3bd6ff", "OPEN");
-    neon(ctx, 210, 70, 90, 20, "#ffd93b", "24H");
-    // Street.
-    ctx.fillStyle = "#141019"; ctx.fillRect(0, 392, W, H - 392);
-    ctx.fillStyle = "#1b1622"; ctx.fillRect(0, 392, W, 4);
-    ctx.globalAlpha = 0.18;
-    ctx.fillStyle = "#ff3b7b"; ctx.fillRect(60, 410, 60, 60);
-    ctx.fillStyle = "#3bd6ff"; ctx.fillRect(350, 420, 70, 50);
+    var signs = ["#ff3b7b", "#3bd6ff", "#ffd93b"], labels = ["夜", "OPEN", "24H"];
+    for (var s = 0; s * 300 < worldW; s++) neon(ctx, 40 + s * 300, 80 + (s % 2) * 40, 120, 24, signs[s % 3], labels[s % 3]);
+    ctx.fillStyle = "#141019"; ctx.fillRect(0, 392, worldW, H - 392);
+    ctx.fillStyle = "#1b1622"; ctx.fillRect(0, 392, worldW, 4);
+    ctx.globalAlpha = 0.16;
+    for (var r = 40; r < worldW; r += 220) { ctx.fillStyle = signs[(r / 220 | 0) % 3]; ctx.fillRect(r, 408, 64, 56); }
     ctx.globalAlpha = 1;
   }
 
-  function drawTower(ctx) {
+  function drawTower(ctx, worldW) {
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#241633"); g.addColorStop(0.5, "#3a2140"); g.addColorStop(1, "#160e1f");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    var s = ctx.createRadialGradient(W * 0.72, 150, 10, W * 0.72, 150, 180);
-    s.addColorStop(0, "rgba(255,150,90,0.4)"); s.addColorStop(1, "rgba(255,150,90,0)");
-    ctx.fillStyle = s; ctx.fillRect(0, 0, W, 320);
-    skyline(ctx, 340, "#1c1330");
-    ctx.strokeStyle = "#120c1e"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(70, 120); ctx.lineTo(40, 340); ctx.moveTo(70, 120); ctx.lineTo(100, 340); ctx.stroke();
-    ctx.lineWidth = 2;
-    for (var i = 1; i < 6; i++) {
-      var yy = 120 + (340 - 120) * (i / 6), wte = 6 + i * 5;
-      ctx.beginPath(); ctx.moveTo(70 - wte, yy); ctx.lineTo(70 + wte, yy); ctx.stroke();
-    }
-    ctx.fillStyle = "#2a2130"; ctx.fillRect(0, 372, W, H - 372);
-    ctx.fillStyle = "#342838"; ctx.fillRect(0, 372, W, 5);
-    ctx.fillStyle = "#241d2b";
-    ctx.fillRect(120, 348, 46, 24); ctx.fillRect(300, 344, 52, 28);
-    ctx.strokeStyle = "#3a2f42"; ctx.lineWidth = 2;
-    ctx.strokeRect(120, 348, 46, 24); ctx.strokeRect(300, 344, 52, 28);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    var sun = ctx.createRadialGradient(worldW * 0.5, 150, 10, worldW * 0.5, 150, 260);
+    sun.addColorStop(0, "rgba(255,150,90,0.35)"); sun.addColorStop(1, "rgba(255,150,90,0)");
+    ctx.fillStyle = sun; ctx.fillRect(0, 0, worldW, 340);
+    skyline(ctx, worldW, 340, "#1c1330");
+    ctx.fillStyle = "#2a2130"; ctx.fillRect(0, 372, worldW, H - 372);
+    ctx.fillStyle = "#342838"; ctx.fillRect(0, 372, worldW, 5);
+    ctx.fillStyle = "#241d2b"; ctx.strokeStyle = "#3a2f42"; ctx.lineWidth = 2;
+    for (var vx = 120; vx < worldW; vx += 260) { ctx.fillRect(vx, 348, 46, 24); ctx.strokeRect(vx, 348, 46, 24); }
   }
 
-  // ---- Scene table --------------------------------------------------------
+  // Rooftop at deep dusk for the betrayal hunt — cover pillars drawn separately.
+  function drawRoofHunt(ctx, worldW) {
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#1a1020"); g.addColorStop(0.5, "#2a1424"); g.addColorStop(1, "#0e0810");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    var moon = ctx.createRadialGradient(worldW * 0.3, 120, 8, worldW * 0.3, 120, 150);
+    moon.addColorStop(0, "rgba(180,120,200,0.35)"); moon.addColorStop(1, "rgba(180,120,200,0)");
+    ctx.fillStyle = moon; ctx.fillRect(0, 0, worldW, 320);
+    starField(ctx, worldW, 7, 8, 150);
+    skyline(ctx, worldW, 350, "#150e22");
+    ctx.fillStyle = "#241a2c"; ctx.fillRect(0, 384, worldW, H - 384);
+    ctx.fillStyle = "#2e2236"; ctx.fillRect(0, 384, worldW, 5);
+    // gravel speckle
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    for (var gx = 0; gx < worldW; gx += 9) ctx.fillRect(gx, 396 + (gx % 3) * 18, 2, 2);
+  }
 
-  // Difficulty curve across the campaign:
-  //  Ch1 gunners only, well spaced — teaches the aim/reload rhythm.
-  //  Ch2 adds rushers and lets threats overlap.
-  //  Ch3 is dense (gunners + rushers) and ends on the boss 〈鴉〉 (GUILTY finisher).
+  /** A cover pillar (AC unit / vent) the traitor hides behind. Centre at x. */
+  function drawCover(ctx, x, ground, kind) {
+    var w = 46, h = 40, left = x - w / 2, top = ground - h;
+    ctx.fillStyle = "#2a2230"; ctx.fillRect(left, top, w, h);
+    ctx.fillStyle = "#372b40"; ctx.fillRect(left, top, w, 5);
+    ctx.strokeStyle = "#453552"; ctx.lineWidth = 2; ctx.strokeRect(left + 0.5, top + 0.5, w, h);
+    // louvres
+    ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+    for (var i = top + 10; i < ground - 4; i += 6) { ctx.beginPath(); ctx.moveTo(left + 5, i); ctx.lineTo(left + w - 5, i); ctx.stroke(); }
+  }
+
+  // ---- scene table --------------------------------------------------------
+
   var SCENES = {
     harbor: {
-      name: "港 ―― 脱出艇まで",
-      ground: 372,
-      startX: 24, exitX: 486, exit: "boat",
-      escortSpeed: 0.45, escortHp: 6,
-      drawBg: drawHarbor,
+      mode: "escort", name: "港 ―― 脱出艇まで",
+      worldW: 1024, ground: 372, startX: 30, exitX: 994, exit: "boat",
+      escortSpeed: 0.6, escortHp: 6, drawBg: drawHarbor,
       spawns: [
-        { t: 100, x: 300, type: "gunner", dir: -1 },
-        { t: 260, x: 420, type: "gunner", dir: -1 },
-        { t: 430, x: 180, type: "gunner", dir: 1 },
-        { t: 600, x: 440, type: "gunner", dir: -1 },
-        { t: 780, x: 260, type: "gunner", dir: -1 }
+        { t: 40, x: 220, type: "gunner", dir: -1 },
+        { t: 40, x: 430, type: "gunner", dir: -1 },
+        { t: 40, x: 630, type: "gunner", dir: -1 },
+        { t: 40, x: 820, type: "gunner", dir: -1 },
+        { t: 40, x: 950, type: "gunner", dir: -1 }
       ]
     },
     alley: {
-      name: "歓楽街 ―― 路地を抜けて",
-      ground: 392,
-      startX: 24, exitX: 486, exit: "door",
-      escortSpeed: 0.48, escortHp: 6,
-      drawBg: drawAlley,
+      mode: "escort", name: "歓楽街 ―― 路地を抜けて",
+      worldW: 1024, ground: 392, startX: 30, exitX: 994, exit: "door",
+      escortSpeed: 0.62, escortHp: 6, drawBg: drawAlley,
       spawns: [
-        { t: 80,  x: 340, type: "gunner", dir: -1 },
-        { t: 180, side: "right", type: "rusher", speed: 0.95 },
-        { t: 300, x: 250, type: "gunner", dir: -1 },
-        { t: 400, x: 430, type: "gunner", dir: -1 },
-        { t: 500, side: "left",  type: "rusher", speed: 1.0 },
-        { t: 620, x: 360, type: "gunner", dir: -1 },
-        { t: 720, side: "right", type: "rusher", speed: 1.05 },
-        { t: 820, x: 300, type: "gunner", dir: -1 }
+        { t: 40,  x: 260, type: "gunner", dir: -1 },
+        { t: 220, rel: 340, type: "rusher", speed: 0.95 },
+        { t: 40,  x: 500, type: "gunner", dir: -1 },
+        { t: 40,  x: 720, type: "gunner", dir: -1 },
+        { t: 560, rel: 340, type: "rusher", speed: 1.0 },
+        { t: 40,  x: 900, type: "gunner", dir: -1 },
+        { t: 900, rel: 340, type: "rusher", speed: 1.05 }
       ]
     },
     tower: {
-      name: "塔上 ―― 首魁の狙撃",
-      ground: 372,
-      startX: 24, exitX: 486, exit: "heli",
-      escortSpeed: 0.44, escortHp: 6,
-      drawBg: drawTower,
+      mode: "escort", name: "塔上 ―― 首魁の狙撃",
+      worldW: 1120, ground: 372, startX: 30, exitX: 1090, exit: "heli",
+      escortSpeed: 0.58, escortHp: 6, drawBg: drawTower,
       spawns: [
-        { t: 80,  x: 300, type: "gunner", dir: -1 },
-        { t: 170, side: "right", type: "rusher", speed: 1.0 },
-        { t: 280, x: 380, type: "gunner", dir: -1 },
-        { t: 360, side: "left",  type: "rusher", speed: 1.05 },
-        { t: 470, x: 210, type: "gunner", dir: 1 },
-        { t: 560, side: "right", type: "rusher", speed: 1.1 },
-        { t: 670, x: 420, type: "gunner", dir: -1 },
-        { t: 770, side: "left",  type: "rusher", speed: 1.1 },
-        { t: 860, x: 432, type: "gunner", dir: -1, boss: true }
+        { t: 40,  x: 280, type: "gunner", dir: -1 },
+        { t: 200, rel: 330, type: "rusher", speed: 1.0 },
+        { t: 40,  x: 580, type: "gunner", dir: -1 },
+        { t: 560, rel: 330, type: "rusher", speed: 1.05 },
+        { t: 40,  x: 860, type: "gunner", dir: -1 },
+        { t: 40,  x: 1010, type: "gunner", dir: -1, boss: true }
       ]
+    },
+    betrayal: {
+      mode: "hunt", name: "裏切り ―― 元・護衛対象の狩り",
+      worldW: 1120, ground: 384, exit: "van", escapeX: 1080,
+      drawBg: drawRoofHunt, drawCover: drawCover,
+      covers: [140, 400, 660, 900]
     }
   };
 
   function get(key) {
     var s = SCENES[key];
     if (!s) return null;
-    s.enemyTotal = s.spawns.length;
+    if (s.mode === "escort") s.enemyTotal = s.spawns.length;
     return s;
   }
 
-  global.OKB_SCENE = { get: get, W: W, H: H };
+  global.OKB_SCENE = { get: get, W: VIEW, VIEW: VIEW, H: H, drawCover: drawCover };
 })(window);
 
 /**
@@ -995,6 +1010,21 @@ button.secondary { background: #26303f; color: var(--ink); }
       px(ctx, -8, -3, 16, 4, "#1c2129");            // hat brim
       px(ctx, -5, -8, 10, 6, "#232a34");            // hat crown
       px(ctx, -4, 4, 3, 2, "#20252e");              // eye shadow
+      ctx.restore();
+    },
+    // The traitor — the same agent, now recoloured hostile (red band, dark coat).
+    traitor: function (ctx, cx) {
+      var y = 200, s = 3.4;
+      ctx.save(); ctx.translate(cx, y); ctx.scale(s, s);
+      px(ctx, -8, 40, 16, 6, "#1a1418");
+      px(ctx, -7, 12, 14, 30, "#3a2a2f");           // dark coat
+      px(ctx, -9, 40, 18, 5, "#3a2a2f");
+      px(ctx, -10, 14, 4, 20, "#332428"); px(ctx, 6, 14, 4, 20, "#332428");
+      px(ctx, -5, 0, 10, 12, "#e7c8a0");            // face
+      px(ctx, -8, -3, 16, 4, "#1c2129");            // hat brim
+      px(ctx, -5, -8, 10, 6, "#232a34");            // hat crown
+      px(ctx, -7, 13, 3, 4, "#d23b3b");             // red armband — now a target
+      px(ctx, -3, 4, 2, 2, "#8a2a2a");
       ctx.restore();
     },
     // OKB — the sniper, seen from behind/side with the long rifle.
@@ -1128,14 +1158,15 @@ button.secondary { background: #26303f; color: var(--ink); }
 })(window);
 
 /**
- * Story data for OKB — an original escort-sniper arc told through Ninja
- * Gaiden-style cutscenes (see cutscene.js). No existing IP; all names and
- * events are invented for this game.
+ * Story data for OKB — an original escort-sniper arc with a betrayal finale,
+ * told through Ninja Gaiden-style cutscenes (see cutscene.js). No existing IP;
+ * all names and events are invented for this game.
  *
  * OKB is a sniper hired to protect an ESCORT — the protagonist of the previous
- * game (an infiltration agent), who now walks each stage autonomously toward
- * the exit while OKB clears the threats. The syndicate 〈カゲロウ〉 wants the
- * agent dead; its head is 〈鴉(からす)〉.
+ * game (an infiltration agent), who walks Ch.1–3 autonomously to each exit
+ * while OKB clears the syndicate 〈カゲロウ〉 and its head 〈鴉(からす)〉. In the
+ * finale the agent turns TRAITOR, and OKB must hunt down the man he protected
+ * as he flees cover-to-cover across the rooftops.
  *
  * Each entry is a `{ panels: [...] }` script consumed by OKB_CUTSCENE.make.
  * A panel is `{ bg, figure?, figureX?, speaker?, text }`.
@@ -1148,71 +1179,78 @@ button.secondary { background: #26303f; color: var(--ink); }
     subtitle: "― 護衛対象を、狙撃で守れ ―",
 
     prologue: { panels: [
-      { bg: "safehouse", speaker: "通信", text: "「OKB。新しい契約だ。今回は“暗殺”じゃない ―― 護衛だ。」" },
+      { bg: "safehouse", speaker: "通信", text: "「OKB。今回は暗殺じゃない ―― 護衛だ。」" },
       { bg: "safehouse", figure: "agent", figureX: 300, speaker: "通信",
-        text: "「対象は一人。“エージェント”で通る男。機密を持って街を横断する。」" },
-      { bg: "scope", speaker: "通信", text: "「お前は屋根の上から“露払い”をしろ。奴を出口まで、無傷で通せ。」" },
+        text: "「対象は“エージェント”。組織〈カゲロウ〉の機密を持って街を横断する。」" },
+      { bg: "scope", speaker: "通信", text: "「屋根の上から露払いをしろ。奴を出口まで、無傷で通せ。」" },
       { bg: "scope", speaker: "OKB", text: "「……了解。撃つのは、対象の邪魔をする者だけだ。」" }
     ]},
 
     chapters: [
       {
-        id: 1,
-        title: "第一章　港の脱出艇",
-        scene: "harbor",
+        id: 1, title: "第一章　港の脱出艇", scene: "harbor",
         intro: { panels: [
           { bg: "harbor_night", figure: "agent", figureX: 150, speaker: "エージェント",
-            text: "「聞こえてるか、狙撃手。俺は港の脱出艇へ向かう。」" },
-          { bg: "harbor_night", figure: "agent", figureX: 150, speaker: "エージェント",
-            text: "「敵がどこから来るかは分からん。……頼りにしてるぞ。」" },
-          { bg: "scope", speaker: "OKB",
-            text: "「歩け。前だけ見ていろ。背後は、俺が撃つ。」" }
+            text: "「聞こえてるか、狙撃手。俺は港の脱出艇へ向かう。頼りにしてるぞ。」" },
+          { bg: "scope", speaker: "OKB", text: "「歩け。前だけ見ていろ。背後は、俺が撃つ。」" }
         ]},
         outro: { panels: [
           { bg: "harbor_night", figure: "agent", figureX: 360, speaker: "エージェント",
-            text: "「……助かった。噂どおりの腕だな。」" },
+            text: "「助かった。噂どおりの腕だな。」" },
           { bg: "scope", speaker: "OKB", text: "「まだ半分だ。次は気を抜くな。」" }
         ]}
       },
       {
-        id: 2,
-        title: "第二章　歓楽街の路地",
-        scene: "alley",
+        id: 2, title: "第二章　歓楽街の路地", scene: "alley",
         intro: { panels: [
           { bg: "alley_neon", figure: "agent", figureX: 150, speaker: "エージェント",
-            text: "「ここからは人目が多い。だが敵も、その中に紛れてる。」" },
-          { bg: "alley_neon", speaker: "通信",
-            text: "「〈カゲロウ〉の実行部隊だ。中には構わず突っ込んでくる奴もいる。」" },
+            text: "「人目が多い。だが敵も、その中に紛れてる。突っ込んでくる奴もいるぞ。」" },
           { bg: "scope", speaker: "OKB", text: "「近づかれる前に、落とす。」" }
         ]},
         outro: { panels: [
           { bg: "alley_neon", figure: "agent", figureX: 360, speaker: "エージェント",
-            text: "「路地を抜けた。……残るは、あの塔だけだ。」" },
+            text: "「路地を抜けた。残るは、あの塔 ―― 〈鴉〉の巣だけだ。」" },
           { bg: "scope", speaker: "OKB", text: "「頭を狙う。“鴉”の首を、な。」" }
         ]}
       },
       {
-        id: 3,
-        title: "終章　塔上の首魁",
-        scene: "tower",
+        id: 3, title: "第三章　塔上の首魁", scene: "tower",
         intro: { panels: [
           { bg: "rooftop_dusk", figure: "crow", figureX: 380, speaker: "〈鴉〉",
             text: "「よくぞここまで。だが屋上から先へは、行かせん。」" },
           { bg: "rooftop_dusk", figure: "agent", figureX: 140, speaker: "エージェント",
-            text: "「ヘリまで走る。狙撃手 ―― 最後の援護を頼む。」" },
+            text: "「ヘリまで走る。狙撃手 ―― 首魁を頼む。」" },
           { bg: "scope", speaker: "OKB", text: "「〈鴉〉。お前が、この夜の“有罪”だ。」" }
         ]},
         outro: { panels: [
-          { bg: "rooftop_dusk", figure: "agent", figureX: 360, speaker: "エージェント",
-            text: "「ヘリに乗った。……世話になったな、OKB。」" },
-          { bg: "scope", speaker: "OKB", text: "「達者でな。次の“有罪”が、また俺を呼ぶ。」" }
+          { bg: "rooftop_dusk", speaker: "OKB", text: "「首魁は落とした。対象は機密を確保 ―― 任務完了、のはずだった。」" },
+          { bg: "black", speaker: "通信", text: "「……OKB、待て。妙だ。機密の信号が、まだ動いて ―― ぐっ」" },
+          { bg: "black", speaker: "OKB", text: "「通信? ……おい、応答しろ。……切れた。」" }
+        ]}
+      },
+      {
+        id: 4, title: "終章　裏切り", scene: "betrayal",
+        intro: { panels: [
+          { bg: "rooftop_dusk", figure: "traitor", figureX: 300, speaker: "エージェント",
+            text: "「悪いな、狙撃手。“護衛対象”は、最初から俺の芝居さ。」" },
+          { bg: "rooftop_dusk", figure: "traitor", figureX: 300, speaker: "エージェント",
+            text: "「〈鴉〉も、あんたも、機密を奪うための駒だ。通信士には眠ってもらった。」" },
+          { bg: "scope", speaker: "通信", text: "「（別回線）…OKB、生きてるか。契約変更だ。標的 ―― さっきまでの護衛対象。」" },
+          { bg: "scope", speaker: "OKB",
+            text: "「守ってきた背中を、撃つ、か。……いいだろう。今度こそ、有罪だ。」" },
+          { bg: "scope", speaker: "OKB",
+            text: "「奴は物陰を渡って逃げる。露出した一瞬を捉えろ。逃がせば、終わりだ。」" }
+        ]},
+        outro: { panels: [
+          { bg: "rooftop_dusk", speaker: "OKB", text: "「……逃げ場はない。お前の芝居も、ここまでだ。」" }
         ]}
       }
     ],
 
     ending: { panels: [
-      { bg: "harbor_night", text: "―― 夜明け前。街は何も知らないまま、静けさを取り戻す。" },
-      { bg: "scope", speaker: "OKB", text: "「護衛対象、脱出を確認。……契約完了だ。」" },
+      { bg: "scope", speaker: "OKB", text: "「標的排除。機密は回収 ―― 契約は、果たした。」" },
+      { bg: "rooftop_dusk", text: "夜明け前。守るはずだった背中は、もう動かない。" },
+      { bg: "black", text: "信じた相手を撃つのも、仕事のうち。OKB はまた、次の“有罪”を待つ。" },
       { bg: "black", text: "《 OKB ―― 完 》" }
     ]}
   };
@@ -1258,12 +1296,15 @@ button.secondary { background: #26303f; color: var(--ink); }
 
   var STATE = { MENU: 0, CUTSCENE: 1, PLAY: 2, RESULT: 3, OVER: 4, ENDING: 5 };
   var COOLDOWN_MAX = 42;   // bolt-action reload between shots (~0.7s)
+  var VIEW_W = SCENES.VIEW || 512;   // the visible slice of the scrolling world
 
   var game = {
     state: STATE.MENU,
     chapterIdx: 0,
     scene: null,
+    mode: "escort",        // "escort" | "hunt"
     escort: null,
+    traitor: null,         // hunt-stage target
     enemies: [],
     spawnIdx: 0,
     frame: 0,
@@ -1272,15 +1313,28 @@ button.secondary { background: #26303f; color: var(--ink); }
     shots: 0,
     score: 0,
     hi: 0,
+    worldW: VIEW_W,        // stage world width (>= VIEW_W)
+    camX: 0,               // horizontal camera scroll (world -> screen)
     camY: 0,               // kept so the ported scope math reads cleanly
     cut: null,             // active cutscene controller
     cutNext: null,         // what to do when the cutscene finishes
-    finisher: null,        // boss GUILTY sequence (freezes the world)
+    finisher: null,        // GUILTY sequence (freezes the world)
     effects: [],           // hit sparks
     tracers: [],           // enemy fire lines
     shotFlash: 0,
     msg: "", msgTimer: 0, msgColor: "#fff"
   };
+
+  // Convert a screen-space tap to world space (camera only scrolls in x).
+  function toWorld(p) { return { x: p.x + game.camX, y: p.y }; }
+  // Follow a subject with a clamped, eased horizontal camera.
+  function updateCamera(subject) {
+    var target = subject.x + subject.w / 2 - VIEW_W / 2;
+    var maxX = Math.max(0, game.worldW - VIEW_W);
+    target = clamp(target, 0, maxX);
+    game.camX += (target - game.camX) * 0.12;
+    game.camX = clamp(game.camX, 0, maxX);
+  }
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function smooth(u) { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); }
@@ -1386,7 +1440,8 @@ button.secondary { background: #26303f; color: var(--ink); }
     var chap = STORY.chapters[game.chapterIdx];
     var sc = SCENES.get(chap.scene);
     game.scene = sc;
-    game.escort = new Entities.Escort({ x: sc.startX, y: sc.ground, speed: sc.escortSpeed, hp: sc.escortHp });
+    game.mode = sc.mode || "escort";
+    game.worldW = sc.worldW || VIEW_W;
     game.enemies = [];
     game.spawnIdx = 0;
     game.frame = 0;
@@ -1398,11 +1453,20 @@ button.secondary { background: #26303f; color: var(--ink); }
     game.tracers = [];
     game.shotFlash = 0;
     game.msgTimer = 0;
+    if (game.mode === "hunt") {
+      game.escort = null;
+      game.traitor = new Entities.Traitor({ covers: sc.covers, y: sc.ground, escapeX: sc.escapeX });
+      game.camX = clamp(game.traitor.x + game.traitor.w / 2 - VIEW_W / 2, 0, Math.max(0, game.worldW - VIEW_W));
+    } else {
+      game.traitor = null;
+      game.escort = new Entities.Escort({ x: sc.startX, y: sc.ground, speed: sc.escortSpeed, hp: sc.escortHp });
+      game.camX = 0;
+    }
     while (Input.takeFire()) {}
     hideOverlay();
     game.state = STATE.PLAY;
     if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
-    flash("護衛開始 ―― " + sc.name, "#ffd166");
+    flash((game.mode === "hunt" ? "排除任務 ―― " : "護衛開始 ―― ") + sc.name, "#ffd166");
     syncHud();
   }
 
@@ -1410,9 +1474,11 @@ button.secondary { background: #26303f; color: var(--ink); }
     var sp = game.scene.spawns;
     while (game.spawnIdx < sp.length && game.frame >= sp[game.spawnIdx].t) {
       var e = sp[game.spawnIdx++];
-      var x = e.x;
-      if (e.side === "left") x = -20;
-      else if (e.side === "right") x = SCENES.W + 4;
+      var x;
+      if (e.rel != null) x = game.escort.x + e.rel;                 // near the escort
+      else if (e.side === "left") x = game.camX - 20;              // enter at a view edge
+      else if (e.side === "right") x = game.camX + VIEW_W + 4;
+      else x = e.x;                                                 // posted at a world x
       game.enemies.push(new Entities.Enemy({
         x: x, y: game.scene.ground, type: e.type, dir: e.dir,
         speed: e.speed, boss: e.boss
@@ -1435,6 +1501,8 @@ button.secondary { background: #26303f; color: var(--ink); }
         addSpark(game.escort.x + game.escort.w / 2, game.escort.y + 14, "#ff5a5a");
         flash("護衛が接触された！", "#ff5a5a");
       }
+      // Retire threats the escort has safely walked past.
+      if (!e.dead && game.escort.x - e.x > 400) continue;
       if (!e.dead) live.push(e);
     }
     game.enemies = live;
@@ -1459,20 +1527,34 @@ button.secondary { background: #26303f; color: var(--ink); }
     if (global.Sound) global.Sound.stopMusic();
     snd("clear");
     var acc = game.shots > 0 ? Math.round((game.killed / game.shots) * 100) : 100;
-    var hpBonus = game.escort.hp * 400;
-    game.score += hpBonus;
-    commitHi();
-    game.state = STATE.RESULT;
     var chap = STORY.chapters[game.chapterIdx];
-    showOverlayHTML("result win",
-      '<h1>護衛成功</h1>' +
-      '<p class="subtitle">' + chap.title + '</p>' +
-      '<ul class="stats">' +
-      '<li>命中率 <b>' + acc + '%</b></li>' +
-      '<li>護衛の残HP <b>' + game.escort.hp + '</b> ＝ +' + hpBonus + '</li>' +
-      '<li>SCORE <b>' + game.score + '</b></li>' +
-      '</ul>' +
-      '<button id="next-btn">次へ</button>');
+    game.state = STATE.RESULT;
+    var stats;
+    if (game.mode === "hunt") {
+      var bonus = 4000;
+      game.score += bonus; commitHi();
+      showOverlayHTML("result win",
+        '<h1>排除完了</h1>' +
+        '<p class="subtitle">' + chap.title + '</p>' +
+        '<ul class="stats">' +
+        '<li>命中率 <b>' + acc + '%</b></li>' +
+        '<li>決着ボーナス <b>+' + bonus + '</b></li>' +
+        '<li>SCORE <b>' + game.score + '</b></li>' +
+        '</ul>' +
+        '<button id="next-btn">次へ</button>');
+    } else {
+      var hpBonus = game.escort.hp * 400;
+      game.score += hpBonus; commitHi();
+      showOverlayHTML("result win",
+        '<h1>護衛成功</h1>' +
+        '<p class="subtitle">' + chap.title + '</p>' +
+        '<ul class="stats">' +
+        '<li>命中率 <b>' + acc + '%</b></li>' +
+        '<li>護衛の残HP <b>' + game.escort.hp + '</b> ＝ +' + hpBonus + '</li>' +
+        '<li>SCORE <b>' + game.score + '</b></li>' +
+        '</ul>' +
+        '<button id="next-btn">次へ</button>');
+    }
     document.getElementById("next-btn").addEventListener("click", function () {
       snd("ui");
       beginCut(chap.outro, function () { beginChapter(game.chapterIdx + 1); });
@@ -1484,9 +1566,10 @@ button.secondary { background: #26303f; color: var(--ink); }
     snd("over");
     commitHi();
     game.state = STATE.OVER;
+    var sub = game.mode === "hunt" ? "標的に逃げられた。追跡は失敗だ。" : "護衛対象が倒れた。契約は破談だ。";
     showOverlayHTML("result over",
-      '<h1>護衛失敗</h1>' +
-      '<p class="subtitle">護衛対象が倒れた。契約は破談だ。</p>' +
+      '<h1>MISSION FAILED</h1>' +
+      '<p class="subtitle">' + sub + '</p>' +
       '<p class="lede">SCORE ' + game.score + ' ／ HI ' + game.hi + '</p>' +
       '<div class="over-btns">' +
       '<button id="retry-btn">このステージを再開</button>' +
@@ -1510,6 +1593,12 @@ button.secondary { background: #26303f; color: var(--ink); }
   function handleShoot(p) {
     if (game.cooldown > 0) { snd("empty"); return; }   // still cycling the bolt
     game.shots++;
+    if (game.mode === "hunt") {
+      // Only a caught-in-the-open traitor can be hit; that shot is the finisher.
+      if (game.traitor && game.traitor.hit(p.x, p.y)) { startFinisher(game.traitor); return; }
+      game.shotFlash = 6; snd("snipe"); fireCooldown();
+      return;
+    }
     // Topmost enemy under the tap wins.
     for (var i = game.enemies.length - 1; i >= 0; i--) {
       var e = game.enemies[i];
@@ -1556,7 +1645,7 @@ button.secondary { background: #26303f; color: var(--ink); }
     else if (s.phase === "guilty" && s.t >= SNIPE.guilty) { s.phase = "fire"; s.t = 0; snd("snipe"); }
     else if (s.phase === "fire" && s.t >= SNIPE.fire) {
       s.enemy.dead = true;
-      game.enemies = game.enemies.filter(function (x) { return !x.dead; });
+      if (game.mode !== "hunt") game.enemies = game.enemies.filter(function (x) { return !x.dead; });
       game.killed++;
       addScore(3000);
       snd("explode");
@@ -1564,6 +1653,7 @@ button.secondary { background: #26303f; color: var(--ink); }
     } else if (s.phase === "after" && s.t >= SNIPE.after) {
       game.finisher = null;
       game.cooldown = 16;
+      if (game.mode === "hunt") missionClear();   // the traitor is down — mission over
     }
   }
 
@@ -1603,15 +1693,26 @@ button.secondary { background: #26303f; color: var(--ink); }
     if (game.cooldown > 0) game.cooldown--;
     game.frame++;
 
+    if (game.mode === "hunt") {
+      var hev = game.traitor.update();
+      updateCamera(game.traitor);
+      if (hev === "escaped") { missionFail(); return; }
+      var htap = Input.takeFire();
+      if (htap) handleShoot(toWorld(htap));
+      syncHud();
+      return;
+    }
+
     game.escort.update(game.scene.exitX);
     spawnDue();
     updateEnemies();
+    updateCamera(game.escort);
 
     if (game.escort.hp <= 0) { missionFail(); return; }
     if (game.escort.arrived) { snd("arrive"); missionClear(); return; }
 
     var tap = Input.takeFire();
-    if (tap) handleShoot(tap);
+    if (tap) handleShoot(toWorld(tap));
 
     syncHud();
   }
@@ -1625,7 +1726,7 @@ button.secondary { background: #26303f; color: var(--ink); }
 
     if (game.state === STATE.MENU || game.state === STATE.RESULT ||
         game.state === STATE.OVER || game.state === STATE.ENDING) {
-      if (game.scene) { ctx.globalAlpha = 0.5; game.scene.drawBg(ctx); ctx.globalAlpha = 1; }
+      if (game.scene) { ctx.globalAlpha = 0.5; game.scene.drawBg(ctx, game.worldW); ctx.globalAlpha = 1; }
       return;
     }
 
@@ -1634,21 +1735,28 @@ button.secondary { background: #26303f; color: var(--ink); }
     var fn = game.finisher;
     if (fn && fn.phase !== "guilty") {
       var z = snipeZoom(fn);
-      var zx = fn.enemy.x + fn.enemy.w / 2;
+      var zx = fn.enemy.x + fn.enemy.w / 2 - game.camX;   // finisher target, screen space
       var zy = fn.enemy.y + 8;
       var shake = fn.phase === "fire" ? (Math.random() - 0.5) * 6 : 0;
       ctx.translate(zx + shake, zy + shake);
       ctx.scale(z, z);
       ctx.translate(-zx, -zy);
     }
+    ctx.translate(-Math.round(game.camX), 0);   // horizontal camera
 
-    game.scene.drawBg(ctx);
+    game.scene.drawBg(ctx, game.worldW);
     drawExit();
-    if (game.escort) game.escort.draw(ctx);
-    for (var i = 0; i < game.enemies.length; i++) game.enemies[i].draw(ctx);
+    if (game.mode === "hunt") {
+      // Occlude a hidden traitor behind cover; keep an exposed one on top.
+      if (game.traitor.exposed) { drawCovers(); game.traitor.draw(ctx); }
+      else { game.traitor.draw(ctx); drawCovers(); }
+    } else {
+      if (game.escort) game.escort.draw(ctx);
+      for (var i = 0; i < game.enemies.length; i++) game.enemies[i].draw(ctx);
+      if (game.escort) drawEscortHp();
+    }
     drawTracers();
     drawSparks();
-    if (game.escort) drawEscortHp();
     ctx.restore();
 
     if (!fn) drawReticle();
@@ -1662,18 +1770,26 @@ button.secondary { background: #26303f; color: var(--ink); }
     if (game.msgTimer > 0) drawFlash();
   }
 
+  function drawCovers() {
+    var sc = game.scene, cs = sc.covers;
+    for (var i = 0; i < cs.length; i++) sc.drawCover(ctx, cs[i], sc.ground, sc.coverKind);
+  }
+
   function drawExit() {
-    var x = game.scene.exitX, gy = game.scene.ground;
+    var hunt = game.mode === "hunt";
+    var x = hunt ? game.scene.escapeX : game.scene.exitX, gy = game.scene.ground;
+    // In the hunt this is the traitor's ESCAPE (bad for the player) — tint it red.
+    var tint = hunt ? "255,90,90" : "120,220,150";
     var g = ctx.createRadialGradient(x, gy - 24, 6, x, gy - 24, 60);
-    g.addColorStop(0, "rgba(120,220,150,0.4)"); g.addColorStop(1, "rgba(120,220,150,0)");
+    g.addColorStop(0, "rgba(" + tint + ",0.4)"); g.addColorStop(1, "rgba(" + tint + ",0)");
     ctx.fillStyle = g; ctx.fillRect(x - 60, gy - 90, 120, 90);
-    ctx.fillStyle = "#7fe6a6"; ctx.font = "bold 11px 'Courier New', monospace";
-    ctx.textAlign = "center"; ctx.fillText("EXIT", x, gy - 60);
+    ctx.fillStyle = hunt ? "#ff8a8a" : "#7fe6a6"; ctx.font = "bold 11px 'Courier New', monospace";
+    ctx.textAlign = "center"; ctx.fillText(hunt ? "ESCAPE" : "EXIT", x, gy - 60);
     ctx.textAlign = "left";
-    // A small kind-specific icon.
     ctx.fillStyle = "#9fb0c8";
     if (game.scene.exit === "boat") { ctx.fillRect(x - 16, gy - 10, 32, 6); ctx.fillRect(x - 2, gy - 24, 3, 14); }
     else if (game.scene.exit === "heli") { ctx.fillRect(x - 20, gy - 40, 40, 2); ctx.fillRect(x - 8, gy - 38, 16, 8); }
+    else if (game.scene.exit === "van") { ctx.fillRect(x - 20, gy - 22, 40, 20); ctx.fillStyle = "#0e1116"; ctx.beginPath(); ctx.arc(x - 12, gy, 4, 0, 6.3); ctx.arc(x + 12, gy, 4, 0, 6.3); ctx.fill(); }
     else { ctx.fillRect(x - 10, gy - 34, 20, 34); }
   }
 
@@ -1713,10 +1829,15 @@ button.secondary { background: #26303f; color: var(--ink); }
     var a = Input.aim();
     if (!a.inside) return;
     var x = a.x, y = a.y;
+    var wx = x + game.camX;                  // world x under the reticle
     var ready = game.cooldown <= 0;
     var onEnemy = false;
-    for (var i = 0; i < game.enemies.length; i++) {
-      if (game.enemies[i].hit(x, y)) { onEnemy = true; break; }
+    if (game.mode === "hunt") {
+      onEnemy = !!(game.traitor && game.traitor.hit(wx, y));
+    } else {
+      for (var i = 0; i < game.enemies.length; i++) {
+        if (game.enemies[i].hit(wx, y)) { onEnemy = true; break; }
+      }
     }
     ctx.save();
     var col = !ready ? "rgba(150,160,175,0.7)" : onEnemy ? "rgba(255,70,70,0.95)" : "rgba(230,236,245,0.85)";
@@ -1762,7 +1883,7 @@ button.secondary { background: #26303f; color: var(--ink); }
   function drawScope(s) {
     var W = canvas.width, H = canvas.height;
     var e = s.enemy;
-    var tx = e.x + e.w / 2;
+    var tx = e.x + e.w / 2 - game.camX;   // world -> screen
     var ty = e.y + 8;
     var sway = s.phase === "aim" ? 2.5 : 0;
     tx += Math.sin(s.t / 9) * sway;
@@ -1952,15 +2073,27 @@ button.secondary { background: #26303f; color: var(--ink); }
     if (hud.mission) hud.mission.textContent = (game.chapterIdx + 1);
     if (hud.score) hud.score.textContent = game.score;
     if (hud.hi) hud.hi.textContent = game.hi;
-    if (hud.hp) hud.hp.textContent = game.escort ? Math.max(0, game.escort.hp) : "-";
-    if (hud.hpMax) hud.hpMax.textContent = game.escort ? game.escort.maxHp : "-";
-    if (hud.dist && game.scene && game.escort) {
-      var d = clamp((game.escort.x - game.scene.startX) / (game.scene.exitX - game.scene.startX), 0, 1);
-      hud.dist.textContent = Math.round(d * 100);
+    if (game.mode === "hunt" && game.traitor) {
+      // Repurpose the HP field as the target's state; distance = how close to escaping.
+      if (hud.hp) hud.hp.textContent = game.traitor.exposed ? "露出" : "物陰";
+      if (hud.hpMax) hud.hpMax.textContent = "標的";
+      if (hud.dist) {
+        var e = clamp(game.traitor.x / game.scene.escapeX, 0, 1);
+        hud.dist.textContent = Math.round(e * 100);
+      }
+    } else {
+      if (hud.hp) hud.hp.textContent = game.escort ? Math.max(0, game.escort.hp) : "-";
+      if (hud.hpMax) hud.hpMax.textContent = game.escort ? game.escort.maxHp : "-";
+      if (hud.dist && game.scene && game.escort) {
+        var d = clamp((game.escort.x - game.scene.startX) / (game.scene.exitX - game.scene.startX), 0, 1);
+        hud.dist.textContent = Math.round(d * 100);
+      }
     }
   }
 
   global.__OKB = game;
+  // QA hook: jump straight into a chapter's mission (skips its intro cutscene).
+  game.debugStart = function (i) { if (i >= 0 && i < STORY.chapters.length) { game.chapterIdx = i; startMission(); } };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();

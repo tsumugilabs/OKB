@@ -1,37 +1,47 @@
 /**
- * Mission scenes for OKB — the escort's route and the enemies that ambush it.
+ * Mission scenes for OKB — the escort's route (and, in the finale, the hunt).
  * This replaces the platformer's level.js.
  *
- * A scene owns: a hand-drawn vector background, the ground line the escort and
- * enemies stand on, the escort's start/exit x, and a spawn schedule (a table of
- * {t, x|side, type, dir, boss} the game turns into `Entities.Enemy`s over time).
- * All art is original vector drawing (no external images) so the page works
- * offline / in a sandbox. Each stage plays on a single 512x480 screen.
+ * Stages now span a WORLD wider than the screen; the game scrolls a horizontal
+ * camera to follow the escort/target. A scene owns: a vector background drawn
+ * across `worldW`, the ground line, the escort's start/exit x, and either a
+ * spawn schedule (escort stages) or a cover list (the "hunt" finale).
+ *
+ * Two stage modes:
+ *  - "escort": the escort walks start -> exit; enemies ambush; protect them.
+ *  - "hunt":   a traitor darts cover-to-cover toward an escape; snipe them in
+ *              the open before they get away.
+ *
+ * All art is original vector drawing (no images) so it runs offline / sandboxed.
+ * Coordinates assume a 512x480 viewport (VIEW).
  */
 (function (global) {
   "use strict";
 
-  var W = 512, H = 480;
+  var VIEW = 512, H = 480;
 
-  function starField(ctx, n, y0, y1) {
+  // ---- shared background helpers (parametric over world width) -----------
+
+  function starField(ctx, worldW, step, y0, y1) {
     ctx.fillStyle = "rgba(220,228,245,0.7)";
-    for (var i = 0; i < n; i++) {
-      var x = (i * 97 % W);
-      var y = y0 + (i * 53 % (y1 - y0));
+    for (var x = 0; x < worldW; x += step) {
+      var y = y0 + ((x * 53) % (y1 - y0));
       ctx.fillRect(x, y, 1, 1);
     }
   }
 
-  function skyline(ctx, baseY, color) {
+  function skyline(ctx, worldW, baseY, color) {
     ctx.fillStyle = color;
-    var bx = [-10, 40, 96, 150, 210, 268, 330, 400, 460, 512];
-    var bh = [120, 175, 96, 150, 110, 168, 120, 150, 96, 140];
-    for (var c = 0; c < bx.length - 1; c++) {
-      ctx.fillRect(bx[c], baseY - bh[c], (bx[c + 1] - bx[c]) - 4, bh[c] + 40);
+    var seed = [120, 175, 96, 150, 110, 168, 120, 150, 96, 140, 132, 104];
+    var x = -10, i = 0;
+    while (x < worldW + 10) {
+      var w = 46 + (i % 4) * 14, h = seed[i % seed.length];
+      ctx.fillRect(x, baseY - h, w - 4, h + 40);
+      x += w; i++;
     }
     ctx.fillStyle = "rgba(210,220,250,0.35)";
     for (var wy = baseY - 150; wy < baseY - 10; wy += 12)
-      for (var wx = 8; wx < W; wx += 14)
+      for (var wx = 8; wx < worldW; wx += 14)
         if ((wx * 3 + wy) % 5 === 0) ctx.fillRect(wx, wy, 3, 4);
   }
 
@@ -48,27 +58,25 @@
     ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, gy, 70, 26, 0, 0, Math.PI * 2); ctx.fill();
   }
 
-  // ---- Backgrounds --------------------------------------------------------
+  // ---- backgrounds --------------------------------------------------------
 
-  function drawHarbor(ctx) {
+  function drawHarbor(ctx, worldW) {
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#0a1020"); g.addColorStop(0.6, "#0e1830"); g.addColorStop(1, "#0b111f");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    starField(ctx, 90, 8, 180);
-    skyline(ctx, 300, "#111a2e");
-    // Water band.
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    starField(ctx, worldW, 6, 8, 180);
+    skyline(ctx, worldW, 300, "#111a2e");
     var w = ctx.createLinearGradient(0, 320, 0, 360);
     w.addColorStop(0, "#0d1a30"); w.addColorStop(1, "#0a1526");
-    ctx.fillStyle = w; ctx.fillRect(0, 320, W, 40);
+    ctx.fillStyle = w; ctx.fillRect(0, 320, worldW, 40);
     ctx.fillStyle = "rgba(120,150,210,0.18)";
-    for (var i = 0; i < 20; i++) ctx.fillRect((i * 61) % W, 326 + (i % 4) * 7, 18, 1);
-    // Pier.
-    ctx.fillStyle = "#20242c"; ctx.fillRect(0, 372, W, H - 372);
-    ctx.fillStyle = "#2a2f38"; ctx.fillRect(0, 372, W, 5);
+    for (var i = 0; i * 61 < worldW; i++) ctx.fillRect((i * 61) % worldW, 326 + (i % 4) * 7, 18, 1);
+    ctx.fillStyle = "#20242c"; ctx.fillRect(0, 372, worldW, H - 372);
+    ctx.fillStyle = "#2a2f38"; ctx.fillRect(0, 372, worldW, 5);
     ctx.strokeStyle = "#171a20"; ctx.lineWidth = 2;
-    for (var pxx = 0; pxx < W; pxx += 40) { ctx.beginPath(); ctx.moveTo(pxx, 378); ctx.lineTo(pxx, H); ctx.stroke(); }
-    crate(ctx, 120, 338, 34); crate(ctx, 300, 338, 34); crate(ctx, 334, 338, 34);
-    lampPool(ctx, 150, 372); lampPool(ctx, 380, 372);
+    for (var px = 0; px < worldW; px += 40) { ctx.beginPath(); ctx.moveTo(px, 378); ctx.lineTo(px, H); ctx.stroke(); }
+    for (var cx = 120; cx < worldW; cx += 300) { crate(ctx, cx, 338, 34); crate(ctx, cx + 34, 338, 34); }
+    for (var lx = 150; lx < worldW; lx += 260) lampPool(ctx, lx, 372);
   }
 
   function neon(ctx, x, y, w, h, color, label) {
@@ -82,113 +90,121 @@
     ctx.restore();
   }
 
-  function drawAlley(ctx) {
+  function drawAlley(ctx, worldW) {
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#160a1e"); g.addColorStop(1, "#0c0713");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#1a1424"; ctx.fillRect(0, 40, W, 320);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    ctx.fillStyle = "#1a1424"; ctx.fillRect(0, 40, worldW, 352);
     for (var wy = 60; wy < 340; wy += 22)
-      for (var wx = 12; wx < W; wx += 26)
+      for (var wx = 12; wx < worldW; wx += 26)
         if ((wx + wy) % 3 === 0) { ctx.fillStyle = "rgba(255,196,120,0.5)"; ctx.fillRect(wx, wy, 10, 12); }
-    neon(ctx, 40, 90, 120, 26, "#ff3b7b", "夜");
-    neon(ctx, 330, 120, 150, 24, "#3bd6ff", "OPEN");
-    neon(ctx, 210, 70, 90, 20, "#ffd93b", "24H");
-    // Street.
-    ctx.fillStyle = "#141019"; ctx.fillRect(0, 392, W, H - 392);
-    ctx.fillStyle = "#1b1622"; ctx.fillRect(0, 392, W, 4);
-    ctx.globalAlpha = 0.18;
-    ctx.fillStyle = "#ff3b7b"; ctx.fillRect(60, 410, 60, 60);
-    ctx.fillStyle = "#3bd6ff"; ctx.fillRect(350, 420, 70, 50);
+    var signs = ["#ff3b7b", "#3bd6ff", "#ffd93b"], labels = ["夜", "OPEN", "24H"];
+    for (var s = 0; s * 300 < worldW; s++) neon(ctx, 40 + s * 300, 80 + (s % 2) * 40, 120, 24, signs[s % 3], labels[s % 3]);
+    ctx.fillStyle = "#141019"; ctx.fillRect(0, 392, worldW, H - 392);
+    ctx.fillStyle = "#1b1622"; ctx.fillRect(0, 392, worldW, 4);
+    ctx.globalAlpha = 0.16;
+    for (var r = 40; r < worldW; r += 220) { ctx.fillStyle = signs[(r / 220 | 0) % 3]; ctx.fillRect(r, 408, 64, 56); }
     ctx.globalAlpha = 1;
   }
 
-  function drawTower(ctx) {
+  function drawTower(ctx, worldW) {
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#241633"); g.addColorStop(0.5, "#3a2140"); g.addColorStop(1, "#160e1f");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    var s = ctx.createRadialGradient(W * 0.72, 150, 10, W * 0.72, 150, 180);
-    s.addColorStop(0, "rgba(255,150,90,0.4)"); s.addColorStop(1, "rgba(255,150,90,0)");
-    ctx.fillStyle = s; ctx.fillRect(0, 0, W, 320);
-    skyline(ctx, 340, "#1c1330");
-    ctx.strokeStyle = "#120c1e"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(70, 120); ctx.lineTo(40, 340); ctx.moveTo(70, 120); ctx.lineTo(100, 340); ctx.stroke();
-    ctx.lineWidth = 2;
-    for (var i = 1; i < 6; i++) {
-      var yy = 120 + (340 - 120) * (i / 6), wte = 6 + i * 5;
-      ctx.beginPath(); ctx.moveTo(70 - wte, yy); ctx.lineTo(70 + wte, yy); ctx.stroke();
-    }
-    ctx.fillStyle = "#2a2130"; ctx.fillRect(0, 372, W, H - 372);
-    ctx.fillStyle = "#342838"; ctx.fillRect(0, 372, W, 5);
-    ctx.fillStyle = "#241d2b";
-    ctx.fillRect(120, 348, 46, 24); ctx.fillRect(300, 344, 52, 28);
-    ctx.strokeStyle = "#3a2f42"; ctx.lineWidth = 2;
-    ctx.strokeRect(120, 348, 46, 24); ctx.strokeRect(300, 344, 52, 28);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    var sun = ctx.createRadialGradient(worldW * 0.5, 150, 10, worldW * 0.5, 150, 260);
+    sun.addColorStop(0, "rgba(255,150,90,0.35)"); sun.addColorStop(1, "rgba(255,150,90,0)");
+    ctx.fillStyle = sun; ctx.fillRect(0, 0, worldW, 340);
+    skyline(ctx, worldW, 340, "#1c1330");
+    ctx.fillStyle = "#2a2130"; ctx.fillRect(0, 372, worldW, H - 372);
+    ctx.fillStyle = "#342838"; ctx.fillRect(0, 372, worldW, 5);
+    ctx.fillStyle = "#241d2b"; ctx.strokeStyle = "#3a2f42"; ctx.lineWidth = 2;
+    for (var vx = 120; vx < worldW; vx += 260) { ctx.fillRect(vx, 348, 46, 24); ctx.strokeRect(vx, 348, 46, 24); }
   }
 
-  // ---- Scene table --------------------------------------------------------
+  // Rooftop at deep dusk for the betrayal hunt — cover pillars drawn separately.
+  function drawRoofHunt(ctx, worldW) {
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#1a1020"); g.addColorStop(0.5, "#2a1424"); g.addColorStop(1, "#0e0810");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, H);
+    var moon = ctx.createRadialGradient(worldW * 0.3, 120, 8, worldW * 0.3, 120, 150);
+    moon.addColorStop(0, "rgba(180,120,200,0.35)"); moon.addColorStop(1, "rgba(180,120,200,0)");
+    ctx.fillStyle = moon; ctx.fillRect(0, 0, worldW, 320);
+    starField(ctx, worldW, 7, 8, 150);
+    skyline(ctx, worldW, 350, "#150e22");
+    ctx.fillStyle = "#241a2c"; ctx.fillRect(0, 384, worldW, H - 384);
+    ctx.fillStyle = "#2e2236"; ctx.fillRect(0, 384, worldW, 5);
+    // gravel speckle
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    for (var gx = 0; gx < worldW; gx += 9) ctx.fillRect(gx, 396 + (gx % 3) * 18, 2, 2);
+  }
 
-  // Difficulty curve across the campaign:
-  //  Ch1 gunners only, well spaced — teaches the aim/reload rhythm.
-  //  Ch2 adds rushers and lets threats overlap.
-  //  Ch3 is dense (gunners + rushers) and ends on the boss 〈鴉〉 (GUILTY finisher).
+  /** A cover pillar (AC unit / vent) the traitor hides behind. Centre at x. */
+  function drawCover(ctx, x, ground, kind) {
+    var w = 46, h = 40, left = x - w / 2, top = ground - h;
+    ctx.fillStyle = "#2a2230"; ctx.fillRect(left, top, w, h);
+    ctx.fillStyle = "#372b40"; ctx.fillRect(left, top, w, 5);
+    ctx.strokeStyle = "#453552"; ctx.lineWidth = 2; ctx.strokeRect(left + 0.5, top + 0.5, w, h);
+    // louvres
+    ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+    for (var i = top + 10; i < ground - 4; i += 6) { ctx.beginPath(); ctx.moveTo(left + 5, i); ctx.lineTo(left + w - 5, i); ctx.stroke(); }
+  }
+
+  // ---- scene table --------------------------------------------------------
+
   var SCENES = {
     harbor: {
-      name: "港 ―― 脱出艇まで",
-      ground: 372,
-      startX: 24, exitX: 486, exit: "boat",
-      escortSpeed: 0.45, escortHp: 6,
-      drawBg: drawHarbor,
+      mode: "escort", name: "港 ―― 脱出艇まで",
+      worldW: 1024, ground: 372, startX: 30, exitX: 994, exit: "boat",
+      escortSpeed: 0.6, escortHp: 6, drawBg: drawHarbor,
       spawns: [
-        { t: 100, x: 300, type: "gunner", dir: -1 },
-        { t: 260, x: 420, type: "gunner", dir: -1 },
-        { t: 430, x: 180, type: "gunner", dir: 1 },
-        { t: 600, x: 440, type: "gunner", dir: -1 },
-        { t: 780, x: 260, type: "gunner", dir: -1 }
+        { t: 40, x: 220, type: "gunner", dir: -1 },
+        { t: 40, x: 430, type: "gunner", dir: -1 },
+        { t: 40, x: 630, type: "gunner", dir: -1 },
+        { t: 40, x: 820, type: "gunner", dir: -1 },
+        { t: 40, x: 950, type: "gunner", dir: -1 }
       ]
     },
     alley: {
-      name: "歓楽街 ―― 路地を抜けて",
-      ground: 392,
-      startX: 24, exitX: 486, exit: "door",
-      escortSpeed: 0.48, escortHp: 6,
-      drawBg: drawAlley,
+      mode: "escort", name: "歓楽街 ―― 路地を抜けて",
+      worldW: 1024, ground: 392, startX: 30, exitX: 994, exit: "door",
+      escortSpeed: 0.62, escortHp: 6, drawBg: drawAlley,
       spawns: [
-        { t: 80,  x: 340, type: "gunner", dir: -1 },
-        { t: 180, side: "right", type: "rusher", speed: 0.95 },
-        { t: 300, x: 250, type: "gunner", dir: -1 },
-        { t: 400, x: 430, type: "gunner", dir: -1 },
-        { t: 500, side: "left",  type: "rusher", speed: 1.0 },
-        { t: 620, x: 360, type: "gunner", dir: -1 },
-        { t: 720, side: "right", type: "rusher", speed: 1.05 },
-        { t: 820, x: 300, type: "gunner", dir: -1 }
+        { t: 40,  x: 260, type: "gunner", dir: -1 },
+        { t: 220, rel: 340, type: "rusher", speed: 0.95 },
+        { t: 40,  x: 500, type: "gunner", dir: -1 },
+        { t: 40,  x: 720, type: "gunner", dir: -1 },
+        { t: 560, rel: 340, type: "rusher", speed: 1.0 },
+        { t: 40,  x: 900, type: "gunner", dir: -1 },
+        { t: 900, rel: 340, type: "rusher", speed: 1.05 }
       ]
     },
     tower: {
-      name: "塔上 ―― 首魁の狙撃",
-      ground: 372,
-      startX: 24, exitX: 486, exit: "heli",
-      escortSpeed: 0.44, escortHp: 6,
-      drawBg: drawTower,
+      mode: "escort", name: "塔上 ―― 首魁の狙撃",
+      worldW: 1120, ground: 372, startX: 30, exitX: 1090, exit: "heli",
+      escortSpeed: 0.58, escortHp: 6, drawBg: drawTower,
       spawns: [
-        { t: 80,  x: 300, type: "gunner", dir: -1 },
-        { t: 170, side: "right", type: "rusher", speed: 1.0 },
-        { t: 280, x: 380, type: "gunner", dir: -1 },
-        { t: 360, side: "left",  type: "rusher", speed: 1.05 },
-        { t: 470, x: 210, type: "gunner", dir: 1 },
-        { t: 560, side: "right", type: "rusher", speed: 1.1 },
-        { t: 670, x: 420, type: "gunner", dir: -1 },
-        { t: 770, side: "left",  type: "rusher", speed: 1.1 },
-        { t: 860, x: 432, type: "gunner", dir: -1, boss: true }
+        { t: 40,  x: 280, type: "gunner", dir: -1 },
+        { t: 200, rel: 330, type: "rusher", speed: 1.0 },
+        { t: 40,  x: 580, type: "gunner", dir: -1 },
+        { t: 560, rel: 330, type: "rusher", speed: 1.05 },
+        { t: 40,  x: 860, type: "gunner", dir: -1 },
+        { t: 40,  x: 1010, type: "gunner", dir: -1, boss: true }
       ]
+    },
+    betrayal: {
+      mode: "hunt", name: "裏切り ―― 元・護衛対象の狩り",
+      worldW: 1120, ground: 384, exit: "van", escapeX: 1080,
+      drawBg: drawRoofHunt, drawCover: drawCover,
+      covers: [140, 400, 660, 900]
     }
   };
 
   function get(key) {
     var s = SCENES[key];
     if (!s) return null;
-    s.enemyTotal = s.spawns.length;
+    if (s.mode === "escort") s.enemyTotal = s.spawns.length;
     return s;
   }
 
-  global.OKB_SCENE = { get: get, W: W, H: H };
+  global.OKB_SCENE = { get: get, W: VIEW, VIEW: VIEW, H: H, drawCover: drawCover };
 })(window);

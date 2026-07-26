@@ -102,6 +102,21 @@
       px(ctx, -4, 4, 3, 2, "#20252e");              // eye shadow
       ctx.restore();
     },
+    // The traitor — the same agent, now recoloured hostile (red band, dark coat).
+    traitor: function (ctx, cx) {
+      var y = 200, s = 3.4;
+      ctx.save(); ctx.translate(cx, y); ctx.scale(s, s);
+      px(ctx, -8, 40, 16, 6, "#1a1418");
+      px(ctx, -7, 12, 14, 30, "#3a2a2f");           // dark coat
+      px(ctx, -9, 40, 18, 5, "#3a2a2f");
+      px(ctx, -10, 14, 4, 20, "#332428"); px(ctx, 6, 14, 4, 20, "#332428");
+      px(ctx, -5, 0, 10, 12, "#e7c8a0");            // face
+      px(ctx, -8, -3, 16, 4, "#1c2129");            // hat brim
+      px(ctx, -5, -8, 10, 6, "#232a34");            // hat crown
+      px(ctx, -7, 13, 3, 4, "#d23b3b");             // red armband — now a target
+      px(ctx, -3, 4, 2, 2, "#8a2a2a");
+      ctx.restore();
+    },
     // OKB — the sniper, seen from behind/side with the long rifle.
     okb: function (ctx, cx) {
       var y = 200, s = 3.4;

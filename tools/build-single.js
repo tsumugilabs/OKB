@@ -31,7 +31,7 @@ var favicon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view
 var body =
 '  <div id="game-wrapper">\n' +
 '    <header id="hud">\n' +
-'      <span class="hud-item">CH <b id="hud-mission">1</b>/3</span>\n' +
+'      <span class="hud-item">CH <b id="hud-mission">1</b>/4</span>\n' +
 '      <span class="hud-item">SCORE <b id="hud-score">0</b></span>\n' +
 '      <span class="hud-item">HI <b id="hud-hi">0</b></span>\n' +
 '      <span class="hud-item">護衛HP <b id="hud-hp">-</b>/<b id="hud-hp-max">-</b></span>\n' +

@@ -36,12 +36,15 @@
 
   var STATE = { MENU: 0, CUTSCENE: 1, PLAY: 2, RESULT: 3, OVER: 4, ENDING: 5 };
   var COOLDOWN_MAX = 42;   // bolt-action reload between shots (~0.7s)
+  var VIEW_W = SCENES.VIEW || 512;   // the visible slice of the scrolling world
 
   var game = {
     state: STATE.MENU,
     chapterIdx: 0,
     scene: null,
+    mode: "escort",        // "escort" | "hunt"
     escort: null,
+    traitor: null,         // hunt-stage target
     enemies: [],
     spawnIdx: 0,
     frame: 0,
@@ -50,15 +53,28 @@
     shots: 0,
     score: 0,
     hi: 0,
+    worldW: VIEW_W,        // stage world width (>= VIEW_W)
+    camX: 0,               // horizontal camera scroll (world -> screen)
     camY: 0,               // kept so the ported scope math reads cleanly
     cut: null,             // active cutscene controller
     cutNext: null,         // what to do when the cutscene finishes
-    finisher: null,        // boss GUILTY sequence (freezes the world)
+    finisher: null,        // GUILTY sequence (freezes the world)
     effects: [],           // hit sparks
     tracers: [],           // enemy fire lines
     shotFlash: 0,
     msg: "", msgTimer: 0, msgColor: "#fff"
   };
+
+  // Convert a screen-space tap to world space (camera only scrolls in x).
+  function toWorld(p) { return { x: p.x + game.camX, y: p.y }; }
+  // Follow a subject with a clamped, eased horizontal camera.
+  function updateCamera(subject) {
+    var target = subject.x + subject.w / 2 - VIEW_W / 2;
+    var maxX = Math.max(0, game.worldW - VIEW_W);
+    target = clamp(target, 0, maxX);
+    game.camX += (target - game.camX) * 0.12;
+    game.camX = clamp(game.camX, 0, maxX);
+  }
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function smooth(u) { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); }
@@ -164,7 +180,8 @@
     var chap = STORY.chapters[game.chapterIdx];
     var sc = SCENES.get(chap.scene);
     game.scene = sc;
-    game.escort = new Entities.Escort({ x: sc.startX, y: sc.ground, speed: sc.escortSpeed, hp: sc.escortHp });
+    game.mode = sc.mode || "escort";
+    game.worldW = sc.worldW || VIEW_W;
     game.enemies = [];
     game.spawnIdx = 0;
     game.frame = 0;
@@ -176,11 +193,20 @@
     game.tracers = [];
     game.shotFlash = 0;
     game.msgTimer = 0;
+    if (game.mode === "hunt") {
+      game.escort = null;
+      game.traitor = new Entities.Traitor({ covers: sc.covers, y: sc.ground, escapeX: sc.escapeX });
+      game.camX = clamp(game.traitor.x + game.traitor.w / 2 - VIEW_W / 2, 0, Math.max(0, game.worldW - VIEW_W));
+    } else {
+      game.traitor = null;
+      game.escort = new Entities.Escort({ x: sc.startX, y: sc.ground, speed: sc.escortSpeed, hp: sc.escortHp });
+      game.camX = 0;
+    }
     while (Input.takeFire()) {}
     hideOverlay();
     game.state = STATE.PLAY;
     if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
-    flash("護衛開始 ―― " + sc.name, "#ffd166");
+    flash((game.mode === "hunt" ? "排除任務 ―― " : "護衛開始 ―― ") + sc.name, "#ffd166");
     syncHud();
   }
 
@@ -188,9 +214,11 @@
     var sp = game.scene.spawns;
     while (game.spawnIdx < sp.length && game.frame >= sp[game.spawnIdx].t) {
       var e = sp[game.spawnIdx++];
-      var x = e.x;
-      if (e.side === "left") x = -20;
-      else if (e.side === "right") x = SCENES.W + 4;
+      var x;
+      if (e.rel != null) x = game.escort.x + e.rel;                 // near the escort
+      else if (e.side === "left") x = game.camX - 20;              // enter at a view edge
+      else if (e.side === "right") x = game.camX + VIEW_W + 4;
+      else x = e.x;                                                 // posted at a world x
       game.enemies.push(new Entities.Enemy({
         x: x, y: game.scene.ground, type: e.type, dir: e.dir,
         speed: e.speed, boss: e.boss
@@ -213,6 +241,8 @@
         addSpark(game.escort.x + game.escort.w / 2, game.escort.y + 14, "#ff5a5a");
         flash("護衛が接触された！", "#ff5a5a");
       }
+      // Retire threats the escort has safely walked past.
+      if (!e.dead && game.escort.x - e.x > 400) continue;
       if (!e.dead) live.push(e);
     }
     game.enemies = live;
@@ -237,20 +267,34 @@
     if (global.Sound) global.Sound.stopMusic();
     snd("clear");
     var acc = game.shots > 0 ? Math.round((game.killed / game.shots) * 100) : 100;
-    var hpBonus = game.escort.hp * 400;
-    game.score += hpBonus;
-    commitHi();
-    game.state = STATE.RESULT;
     var chap = STORY.chapters[game.chapterIdx];
-    showOverlayHTML("result win",
-      '<h1>護衛成功</h1>' +
-      '<p class="subtitle">' + chap.title + '</p>' +
-      '<ul class="stats">' +
-      '<li>命中率 <b>' + acc + '%</b></li>' +
-      '<li>護衛の残HP <b>' + game.escort.hp + '</b> ＝ +' + hpBonus + '</li>' +
-      '<li>SCORE <b>' + game.score + '</b></li>' +
-      '</ul>' +
-      '<button id="next-btn">次へ</button>');
+    game.state = STATE.RESULT;
+    var stats;
+    if (game.mode === "hunt") {
+      var bonus = 4000;
+      game.score += bonus; commitHi();
+      showOverlayHTML("result win",
+        '<h1>排除完了</h1>' +
+        '<p class="subtitle">' + chap.title + '</p>' +
+        '<ul class="stats">' +
+        '<li>命中率 <b>' + acc + '%</b></li>' +
+        '<li>決着ボーナス <b>+' + bonus + '</b></li>' +
+        '<li>SCORE <b>' + game.score + '</b></li>' +
+        '</ul>' +
+        '<button id="next-btn">次へ</button>');
+    } else {
+      var hpBonus = game.escort.hp * 400;
+      game.score += hpBonus; commitHi();
+      showOverlayHTML("result win",
+        '<h1>護衛成功</h1>' +
+        '<p class="subtitle">' + chap.title + '</p>' +
+        '<ul class="stats">' +
+        '<li>命中率 <b>' + acc + '%</b></li>' +
+        '<li>護衛の残HP <b>' + game.escort.hp + '</b> ＝ +' + hpBonus + '</li>' +
+        '<li>SCORE <b>' + game.score + '</b></li>' +
+        '</ul>' +
+        '<button id="next-btn">次へ</button>');
+    }
     document.getElementById("next-btn").addEventListener("click", function () {
       snd("ui");
       beginCut(chap.outro, function () { beginChapter(game.chapterIdx + 1); });
@@ -262,9 +306,10 @@
     snd("over");
     commitHi();
     game.state = STATE.OVER;
+    var sub = game.mode === "hunt" ? "標的に逃げられた。追跡は失敗だ。" : "護衛対象が倒れた。契約は破談だ。";
     showOverlayHTML("result over",
-      '<h1>護衛失敗</h1>' +
-      '<p class="subtitle">護衛対象が倒れた。契約は破談だ。</p>' +
+      '<h1>MISSION FAILED</h1>' +
+      '<p class="subtitle">' + sub + '</p>' +
       '<p class="lede">SCORE ' + game.score + ' ／ HI ' + game.hi + '</p>' +
       '<div class="over-btns">' +
       '<button id="retry-btn">このステージを再開</button>' +
@@ -288,6 +333,12 @@
   function handleShoot(p) {
     if (game.cooldown > 0) { snd("empty"); return; }   // still cycling the bolt
     game.shots++;
+    if (game.mode === "hunt") {
+      // Only a caught-in-the-open traitor can be hit; that shot is the finisher.
+      if (game.traitor && game.traitor.hit(p.x, p.y)) { startFinisher(game.traitor); return; }
+      game.shotFlash = 6; snd("snipe"); fireCooldown();
+      return;
+    }
     // Topmost enemy under the tap wins.
     for (var i = game.enemies.length - 1; i >= 0; i--) {
       var e = game.enemies[i];
@@ -334,7 +385,7 @@
     else if (s.phase === "guilty" && s.t >= SNIPE.guilty) { s.phase = "fire"; s.t = 0; snd("snipe"); }
     else if (s.phase === "fire" && s.t >= SNIPE.fire) {
       s.enemy.dead = true;
-      game.enemies = game.enemies.filter(function (x) { return !x.dead; });
+      if (game.mode !== "hunt") game.enemies = game.enemies.filter(function (x) { return !x.dead; });
       game.killed++;
       addScore(3000);
       snd("explode");
@@ -342,6 +393,7 @@
     } else if (s.phase === "after" && s.t >= SNIPE.after) {
       game.finisher = null;
       game.cooldown = 16;
+      if (game.mode === "hunt") missionClear();   // the traitor is down — mission over
     }
   }
 
@@ -381,15 +433,26 @@
     if (game.cooldown > 0) game.cooldown--;
     game.frame++;
 
+    if (game.mode === "hunt") {
+      var hev = game.traitor.update();
+      updateCamera(game.traitor);
+      if (hev === "escaped") { missionFail(); return; }
+      var htap = Input.takeFire();
+      if (htap) handleShoot(toWorld(htap));
+      syncHud();
+      return;
+    }
+
     game.escort.update(game.scene.exitX);
     spawnDue();
     updateEnemies();
+    updateCamera(game.escort);
 
     if (game.escort.hp <= 0) { missionFail(); return; }
     if (game.escort.arrived) { snd("arrive"); missionClear(); return; }
 
     var tap = Input.takeFire();
-    if (tap) handleShoot(tap);
+    if (tap) handleShoot(toWorld(tap));
 
     syncHud();
   }
@@ -403,7 +466,7 @@
 
     if (game.state === STATE.MENU || game.state === STATE.RESULT ||
         game.state === STATE.OVER || game.state === STATE.ENDING) {
-      if (game.scene) { ctx.globalAlpha = 0.5; game.scene.drawBg(ctx); ctx.globalAlpha = 1; }
+      if (game.scene) { ctx.globalAlpha = 0.5; game.scene.drawBg(ctx, game.worldW); ctx.globalAlpha = 1; }
       return;
     }
 
@@ -412,21 +475,28 @@
     var fn = game.finisher;
     if (fn && fn.phase !== "guilty") {
       var z = snipeZoom(fn);
-      var zx = fn.enemy.x + fn.enemy.w / 2;
+      var zx = fn.enemy.x + fn.enemy.w / 2 - game.camX;   // finisher target, screen space
       var zy = fn.enemy.y + 8;
       var shake = fn.phase === "fire" ? (Math.random() - 0.5) * 6 : 0;
       ctx.translate(zx + shake, zy + shake);
       ctx.scale(z, z);
       ctx.translate(-zx, -zy);
     }
+    ctx.translate(-Math.round(game.camX), 0);   // horizontal camera
 
-    game.scene.drawBg(ctx);
+    game.scene.drawBg(ctx, game.worldW);
     drawExit();
-    if (game.escort) game.escort.draw(ctx);
-    for (var i = 0; i < game.enemies.length; i++) game.enemies[i].draw(ctx);
+    if (game.mode === "hunt") {
+      // Occlude a hidden traitor behind cover; keep an exposed one on top.
+      if (game.traitor.exposed) { drawCovers(); game.traitor.draw(ctx); }
+      else { game.traitor.draw(ctx); drawCovers(); }
+    } else {
+      if (game.escort) game.escort.draw(ctx);
+      for (var i = 0; i < game.enemies.length; i++) game.enemies[i].draw(ctx);
+      if (game.escort) drawEscortHp();
+    }
     drawTracers();
     drawSparks();
-    if (game.escort) drawEscortHp();
     ctx.restore();
 
     if (!fn) drawReticle();
@@ -440,18 +510,26 @@
     if (game.msgTimer > 0) drawFlash();
   }
 
+  function drawCovers() {
+    var sc = game.scene, cs = sc.covers;
+    for (var i = 0; i < cs.length; i++) sc.drawCover(ctx, cs[i], sc.ground, sc.coverKind);
+  }
+
   function drawExit() {
-    var x = game.scene.exitX, gy = game.scene.ground;
+    var hunt = game.mode === "hunt";
+    var x = hunt ? game.scene.escapeX : game.scene.exitX, gy = game.scene.ground;
+    // In the hunt this is the traitor's ESCAPE (bad for the player) — tint it red.
+    var tint = hunt ? "255,90,90" : "120,220,150";
     var g = ctx.createRadialGradient(x, gy - 24, 6, x, gy - 24, 60);
-    g.addColorStop(0, "rgba(120,220,150,0.4)"); g.addColorStop(1, "rgba(120,220,150,0)");
+    g.addColorStop(0, "rgba(" + tint + ",0.4)"); g.addColorStop(1, "rgba(" + tint + ",0)");
     ctx.fillStyle = g; ctx.fillRect(x - 60, gy - 90, 120, 90);
-    ctx.fillStyle = "#7fe6a6"; ctx.font = "bold 11px 'Courier New', monospace";
-    ctx.textAlign = "center"; ctx.fillText("EXIT", x, gy - 60);
+    ctx.fillStyle = hunt ? "#ff8a8a" : "#7fe6a6"; ctx.font = "bold 11px 'Courier New', monospace";
+    ctx.textAlign = "center"; ctx.fillText(hunt ? "ESCAPE" : "EXIT", x, gy - 60);
     ctx.textAlign = "left";
-    // A small kind-specific icon.
     ctx.fillStyle = "#9fb0c8";
     if (game.scene.exit === "boat") { ctx.fillRect(x - 16, gy - 10, 32, 6); ctx.fillRect(x - 2, gy - 24, 3, 14); }
     else if (game.scene.exit === "heli") { ctx.fillRect(x - 20, gy - 40, 40, 2); ctx.fillRect(x - 8, gy - 38, 16, 8); }
+    else if (game.scene.exit === "van") { ctx.fillRect(x - 20, gy - 22, 40, 20); ctx.fillStyle = "#0e1116"; ctx.beginPath(); ctx.arc(x - 12, gy, 4, 0, 6.3); ctx.arc(x + 12, gy, 4, 0, 6.3); ctx.fill(); }
     else { ctx.fillRect(x - 10, gy - 34, 20, 34); }
   }
 
@@ -491,10 +569,15 @@
     var a = Input.aim();
     if (!a.inside) return;
     var x = a.x, y = a.y;
+    var wx = x + game.camX;                  // world x under the reticle
     var ready = game.cooldown <= 0;
     var onEnemy = false;
-    for (var i = 0; i < game.enemies.length; i++) {
-      if (game.enemies[i].hit(x, y)) { onEnemy = true; break; }
+    if (game.mode === "hunt") {
+      onEnemy = !!(game.traitor && game.traitor.hit(wx, y));
+    } else {
+      for (var i = 0; i < game.enemies.length; i++) {
+        if (game.enemies[i].hit(wx, y)) { onEnemy = true; break; }
+      }
     }
     ctx.save();
     var col = !ready ? "rgba(150,160,175,0.7)" : onEnemy ? "rgba(255,70,70,0.95)" : "rgba(230,236,245,0.85)";
@@ -540,7 +623,7 @@
   function drawScope(s) {
     var W = canvas.width, H = canvas.height;
     var e = s.enemy;
-    var tx = e.x + e.w / 2;
+    var tx = e.x + e.w / 2 - game.camX;   // world -> screen
     var ty = e.y + 8;
     var sway = s.phase === "aim" ? 2.5 : 0;
     tx += Math.sin(s.t / 9) * sway;
@@ -730,15 +813,27 @@
     if (hud.mission) hud.mission.textContent = (game.chapterIdx + 1);
     if (hud.score) hud.score.textContent = game.score;
     if (hud.hi) hud.hi.textContent = game.hi;
-    if (hud.hp) hud.hp.textContent = game.escort ? Math.max(0, game.escort.hp) : "-";
-    if (hud.hpMax) hud.hpMax.textContent = game.escort ? game.escort.maxHp : "-";
-    if (hud.dist && game.scene && game.escort) {
-      var d = clamp((game.escort.x - game.scene.startX) / (game.scene.exitX - game.scene.startX), 0, 1);
-      hud.dist.textContent = Math.round(d * 100);
+    if (game.mode === "hunt" && game.traitor) {
+      // Repurpose the HP field as the target's state; distance = how close to escaping.
+      if (hud.hp) hud.hp.textContent = game.traitor.exposed ? "露出" : "物陰";
+      if (hud.hpMax) hud.hpMax.textContent = "標的";
+      if (hud.dist) {
+        var e = clamp(game.traitor.x / game.scene.escapeX, 0, 1);
+        hud.dist.textContent = Math.round(e * 100);
+      }
+    } else {
+      if (hud.hp) hud.hp.textContent = game.escort ? Math.max(0, game.escort.hp) : "-";
+      if (hud.hpMax) hud.hpMax.textContent = game.escort ? game.escort.maxHp : "-";
+      if (hud.dist && game.scene && game.escort) {
+        var d = clamp((game.escort.x - game.scene.startX) / (game.scene.exitX - game.scene.startX), 0, 1);
+        hud.dist.textContent = Math.round(d * 100);
+      }
     }
   }
 
   global.__OKB = game;
+  // QA hook: jump straight into a chapter's mission (skips its intro cutscene).
+  game.debugStart = function (i) { if (i >= 0 && i < STORY.chapters.length) { game.chapterIdx = i; startMission(); } };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
