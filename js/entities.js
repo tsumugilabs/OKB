@@ -46,7 +46,10 @@
     if (this.x + this.w / 2 >= exitX) this.arrived = true;
   };
   Escort.prototype.hurt = function () { this.hp--; this.hurtFlash = 26; this.stunned = 20; };
+  // Friendly fire: a visual mark only — the run-wide misfire count lives in game.
+  Escort.prototype.mark = function () { this.hurtFlash = 22; };
   Escort.prototype.rect = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
+  Escort.prototype.hit = function (px, py) { return pointIn(px, py, this.rect(), 4); };
   Escort.prototype.draw = function (ctx) { drawAgent(ctx, this.x, this.y, this.hurtFlash > 0 && (this.hurtFlash >> 2) % 2 === 0, false); };
 
   // A shared fedora-and-trench sprite. `traitor` recolours it as hostile.
@@ -154,11 +157,16 @@
   // ---- Traitor: the hunt target — hides cover-to-cover -------------------
 
   var TR_W = 16, TR_H = 36;
-  var HIDE_T = 84, PEEK_T = 56, DASH_SPEED = 2.5;
 
   function hidePos(c) { return c - TR_W / 2; }     // tucked behind the pillar
   function peekPos(c) { return c - 38; }           // stepped out to the left, exposed
 
+  /**
+   * opts: { covers[], y, escapeX, hp, dashSpeed, peekT, hideT }
+   * The finale target. Super fast by default (you can barely land one hit) and
+   * takes `hp` shots to down — but prior friendly fire on the escort (who is
+   * this same person) lowers hp AND slows the dash, so wounds carry over.
+   */
   function Traitor(opts) {
     this.w = TR_W; this.h = TR_H;
     this.covers = opts.covers.slice();
@@ -168,7 +176,12 @@
     this.x = hidePos(this.covers[0]);
     this.state = "hide"; this.timer = 0;
     this.exposed = false; this.dead = false; this.escaped = false;
-    this.walk = 0; this.dashTargetX = 0; this.hp = 1;
+    this.walk = 0; this.dashTargetX = 0;
+    this.maxHp = opts.hp || 3; this.hp = this.maxHp;
+    this.dashSpeed = opts.dashSpeed != null ? opts.dashSpeed : 4.6;
+    this.peekT = opts.peekT != null ? opts.peekT : 30;
+    this.hideT = opts.hideT != null ? opts.hideT : 60;
+    this.stagger = 0; this.hitFlash = 0;
   }
 
   Traitor.prototype._startDash = function () {
@@ -177,22 +190,27 @@
     this.state = "dash"; this.timer = 0;
   };
 
+  /** A non-lethal hit briefly staggers the traitor (stays exposed a moment). */
+  Traitor.prototype.stumble = function () { this.stagger = 16; this.hitFlash = 12; };
+
   /** Returns "escaped" once the traitor slips past the escape point. */
   Traitor.prototype.update = function () {
+    if (this.hitFlash > 0) this.hitFlash--;
+    if (this.stagger > 0) { this.stagger--; this.exposed = true; return null; } // frozen but hittable
     this.timer++;
     if (this.state === "hide") {
       this.exposed = false;
       this.x = hidePos(this.covers[this.idx]);
-      if (this.timer >= HIDE_T) { this.state = "peek"; this.timer = 0; }
+      if (this.timer >= this.hideT) { this.state = "peek"; this.timer = 0; }
     } else if (this.state === "peek") {
       this.exposed = true;
       this.x = peekPos(this.covers[this.idx]);
       this.y = this.baseY + Math.sin(this.timer * 0.18) * 0.8;   // small nervous sway
-      if (this.timer >= PEEK_T) this._startDash();
+      if (this.timer >= this.peekT) this._startDash();
     } else if (this.state === "dash") {
       this.exposed = true;
-      this.walk += DASH_SPEED;
-      this.x += DASH_SPEED;
+      this.walk += this.dashSpeed;
+      this.x += this.dashSpeed;
       this.y = this.baseY + Math.abs(Math.sin(this.walk * 0.4)) * -2;  // running bob
       if (this.x >= this.dashTargetX) {
         if (this.idx + 1 <= this.covers.length - 1) { this.idx++; this.state = "hide"; this.timer = 0; }
@@ -206,11 +224,17 @@
   Traitor.prototype.rect = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
   Traitor.prototype.hit = function (px, py) { return this.exposed && !this.dead && pointIn(px, py, this.rect(), 5); };
   Traitor.prototype.draw = function (ctx) {
-    drawAgent(ctx, this.x, this.y, false, true, this.state === "dash" ? this.walk : 0);
-    if (this.exposed) {   // faint hostile ring so an exposed traitor reads at a glance
-      ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = "#ff5a5a"; ctx.lineWidth = 1;
+    var flash = this.hitFlash > 0 && (this.hitFlash >> 1) % 2 === 0;
+    drawAgent(ctx, this.x, this.y, flash, true, this.state === "dash" ? this.walk : 0);
+    if (this.exposed) {   // hostile ring + remaining-HP pips so an exposed target reads at a glance
+      ctx.save(); ctx.globalAlpha = 0.6; ctx.strokeStyle = "#ff5a5a"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(this.x + this.w / 2, this.y + this.h - 1, 11, 3, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
+      var cx = this.x + this.w / 2;
+      for (var i = 0; i < this.maxHp; i++) {
+        ctx.fillStyle = i < this.hp ? "#ff5a5a" : "rgba(120,120,130,0.4)";
+        ctx.fillRect(cx - this.maxHp * 3 + i * 6, this.y - 10, 4, 4);
+      }
     }
   };
 

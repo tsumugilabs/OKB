@@ -31,7 +31,8 @@
     hi: document.getElementById("hud-hi"),
     hp: document.getElementById("hud-hp"),
     hpMax: document.getElementById("hud-hp-max"),
-    dist: document.getElementById("hud-dist")
+    dist: document.getElementById("hud-dist"),
+    note: document.getElementById("hud-note")
   };
 
   var STATE = { MENU: 0, CUTSCENE: 1, PLAY: 2, RESULT: 3, OVER: 4, ENDING: 5 };
@@ -51,6 +52,8 @@
     cooldown: 0,
     killed: 0,
     shots: 0,
+    misfires: 0,           // run-wide friendly-fire count (3 = game over; carries to finale)
+    bonusSpawns: [],       // extra enemy spawn times added by misfires
     score: 0,
     hi: 0,
     worldW: VIEW_W,        // stage world width (>= VIEW_W)
@@ -130,8 +133,8 @@
       '妨害しに現れる敵をタップ／クリックで狙撃し、守り抜け。</p>' +
       '<ul class="controls">' +
       '<li>🖱 / 👆 <b>照準＆射撃</b>（1発ごとにリロード）</li>' +
-      '<li>🟥 <b>敵</b>（撃つ）｜ 🟦 <b>護衛対象</b>（守る）</li>' +
-      '<li>⚠ 予兆中に撃て。撃たれると護衛のHPが減る</li>' +
+      '<li>🟥 <b>敵</b>（撃つ）｜ 🟦 <b>護衛対象</b>（守る・撃つな）</li>' +
+      '<li>⚠ <b>誤射3回で失敗</b>。誤射のたび護衛は遅くなり敵も増える</li>' +
       '</ul>' +
       '<button id="start-btn">START</button>');
     document.getElementById("start-btn").addEventListener("click", function () {
@@ -141,6 +144,7 @@
 
   function startGame() {
     game.score = 0;
+    game.misfires = 0;
     game.chapterIdx = 0;
     beginCut(STORY.prologue, function () { beginChapter(0); });
   }
@@ -191,22 +195,40 @@
     game.finisher = null;
     game.effects = [];
     game.tracers = [];
+    game.bonusSpawns = [];
     game.shotFlash = 0;
     game.msgTimer = 0;
     if (game.mode === "hunt") {
       game.escort = null;
-      game.traitor = new Entities.Traitor({ covers: sc.covers, y: sc.ground, escapeX: sc.escapeX });
+      // Prior friendly fire (wounds, max 2) lowers the traitor's HP and speed.
+      var wounds = Math.min(2, game.misfires);
+      game.traitor = new Entities.Traitor({
+        covers: sc.covers, y: sc.ground, escapeX: sc.escapeX,
+        hp: 3 - wounds,
+        dashSpeed: 4.6 - wounds * 1.0,
+        peekT: 30 + wounds * 15,
+        hideT: 60
+      });
       game.camX = clamp(game.traitor.x + game.traitor.w / 2 - VIEW_W / 2, 0, Math.max(0, game.worldW - VIEW_W));
     } else {
       game.traitor = null;
-      game.escort = new Entities.Escort({ x: sc.startX, y: sc.ground, speed: sc.escortSpeed, hp: sc.escortHp });
+      // Each prior misfire has permanently slowed the escort (~x0.8 each).
+      var slow = Math.pow(0.8, game.misfires);
+      game.escort = new Entities.Escort({ x: sc.startX, y: sc.ground, speed: sc.escortSpeed * slow, hp: sc.escortHp });
+      // Carried misfires also mean more enemies — seed a few extra rushers.
+      for (var m = 0; m < game.misfires; m++) game.bonusSpawns.push(140 + m * 170);
       game.camX = 0;
     }
     while (Input.takeFire()) {}
     hideOverlay();
     game.state = STATE.PLAY;
     if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
-    flash((game.mode === "hunt" ? "排除任務 ―― " : "護衛開始 ―― ") + sc.name, "#ffd166");
+    if (game.mode === "hunt") {
+      flash("排除任務 ―― " + sc.name, "#ffd166");
+      if (wounds > 0) setTimeout(function () { if (game.state === STATE.PLAY) flash("標的は負傷している（誤射の代償）", "#7fe6a6"); }, 1200);
+    } else {
+      flash("護衛開始 ―― 護衛対象を撃つな！（誤射3回で失敗）", "#ff9a6a");
+    }
     syncHud();
   }
 
@@ -224,6 +246,19 @@
         speed: e.speed, boss: e.boss
       }));
       if (e.type === "rusher" || e.boss) snd("alert");
+    }
+  }
+
+  // Extra rushers injected by friendly fire ("more enemies appear").
+  function processBonus() {
+    for (var i = game.bonusSpawns.length - 1; i >= 0; i--) {
+      if (game.frame >= game.bonusSpawns[i]) {
+        game.bonusSpawns.splice(i, 1);
+        var fromRight = Math.random() < 0.6;
+        var x = fromRight ? game.escort.x + 340 : game.escort.x - 300;
+        game.enemies.push(new Entities.Enemy({ x: x, y: game.scene.ground, type: "rusher", speed: 1.0 + Math.random() * 0.15 }));
+        snd("alert");
+      }
     }
   }
 
@@ -301,12 +336,12 @@
     });
   }
 
-  function missionFail() {
+  function missionFail(reason) {
     if (global.Sound) global.Sound.stopMusic();
     snd("over");
     commitHi();
     game.state = STATE.OVER;
-    var sub = game.mode === "hunt" ? "標的に逃げられた。追跡は失敗だ。" : "護衛対象が倒れた。契約は破談だ。";
+    var sub = reason || (game.mode === "hunt" ? "標的に逃げられた。追跡は失敗だ。" : "護衛対象が倒れた。契約は破談だ。");
     showOverlayHTML("result over",
       '<h1>MISSION FAILED</h1>' +
       '<p class="subtitle">' + sub + '</p>' +
@@ -334,8 +369,16 @@
     if (game.cooldown > 0) { snd("empty"); return; }   // still cycling the bolt
     game.shots++;
     if (game.mode === "hunt") {
-      // Only a caught-in-the-open traitor can be hit; that shot is the finisher.
-      if (game.traitor && game.traitor.hit(p.x, p.y)) { startFinisher(game.traitor); return; }
+      // Only a caught-in-the-open traitor can be hit. It takes several shots;
+      // the killing blow triggers the GUILTY finisher.
+      if (game.traitor && game.traitor.hit(p.x, p.y)) {
+        game.traitor.hp--;
+        game.shotFlash = 6;
+        addSpark(game.traitor.x + game.traitor.w / 2, game.traitor.y + 8, "#ff5a5a");
+        if (game.traitor.hp <= 0) { startFinisher(game.traitor); }
+        else { game.traitor.stumble(); snd("snipe"); addScore(300); flash("命中！ 残り " + game.traitor.hp, "#ffd166"); fireCooldown(); }
+        return;
+      }
       game.shotFlash = 6; snd("snipe"); fireCooldown();
       return;
     }
@@ -349,10 +392,32 @@
         return;
       }
     }
+    // Hitting the escort is FRIENDLY FIRE — a serious mistake.
+    if (game.escort && game.escort.hit(p.x, p.y)) { onMisfire(); return; }
     // Missed shot into empty air — still costs a reload cycle.
     game.shotFlash = 6;
     snd("snipe");
     fireCooldown();
+  }
+
+  // Friendly fire: run-wide count. Each one slows the escort and adds enemies;
+  // the third ends the run. The wounds also carry into the finale (the escort
+  // turns out to be the traitor), lowering that target's HP and speed.
+  function onMisfire() {
+    game.misfires++;
+    if (game.escort) game.escort.mark();
+    game.shotFlash = 6;
+    snd("wrong");
+    if (game.misfires >= 3) {
+      syncHud();
+      missionFail("誤射3回 ―― 護衛対象を撃ちすぎた");
+      return;
+    }
+    if (game.escort) game.escort.speed *= 0.8;                 // permanent slow
+    game.bonusSpawns.push(game.frame + 30, game.frame + 70);   // more enemies
+    flash("誤射！ 護衛対象を撃つな（" + game.misfires + "/3）", "#ff5a5a");
+    fireCooldown();
+    syncHud();
   }
 
   function killEnemy(e) {
@@ -445,6 +510,7 @@
 
     game.escort.update(game.scene.exitX);
     spawnDue();
+    processBonus();
     updateEnemies();
     updateCamera(game.escort);
 
@@ -821,6 +887,7 @@
         var e = clamp(game.traitor.x / game.scene.escapeX, 0, 1);
         hud.dist.textContent = Math.round(e * 100);
       }
+      if (hud.note) hud.note.textContent = "標的HP " + game.traitor.hp + "/" + game.traitor.maxHp;
     } else {
       if (hud.hp) hud.hp.textContent = game.escort ? Math.max(0, game.escort.hp) : "-";
       if (hud.hpMax) hud.hpMax.textContent = game.escort ? game.escort.maxHp : "-";
@@ -828,6 +895,7 @@
         var d = clamp((game.escort.x - game.scene.startX) / (game.scene.exitX - game.scene.startX), 0, 1);
         hud.dist.textContent = Math.round(d * 100);
       }
+      if (hud.note) hud.note.textContent = "誤射 " + game.misfires + "/3";
     }
   }
 

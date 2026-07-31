@@ -36,6 +36,7 @@ var body =
 '      <span class="hud-item">HI <b id="hud-hi">0</b></span>\n' +
 '      <span class="hud-item">護衛HP <b id="hud-hp">-</b>/<b id="hud-hp-max">-</b></span>\n' +
 '      <span class="hud-item">進行 <b id="hud-dist">0</b>%</span>\n' +
+'      <span class="hud-item"><b id="hud-note">誤射 0/3</b></span>\n' +
 '      <button id="sound-toggle" type="button" title="サウンド ON/OFF (M)">🔊</button>\n' +
 '    </header>\n' +
 '    <div id="stage">\n' +
