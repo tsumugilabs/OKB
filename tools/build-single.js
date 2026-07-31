@@ -43,7 +43,7 @@ var body =
 '      <canvas id="game" width="512" height="480"></canvas>\n' +
 '      <div id="overlay" class="overlay menu"><h1>OKB</h1><p class="subtitle">護衛スナイパー</p><p class="lede">読み込み中…</p></div>\n' +
 '    </div>\n' +
-'    <p id="hint">画面をタップ／クリックで敵を狙撃（1発ごとにリロード） ／ 護衛対象を守れ ／ M: サウンド</p>\n' +
+'    <p id="hint">ダブルクリック／ピンチインでスコープ → 照準を合わせてクリック／タップで狙撃 ／ M: サウンド</p>\n' +
 '  </div>\n';
 
 var styleTag = '<style>\n' + css + '\n</style>\n';

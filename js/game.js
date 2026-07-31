@@ -38,6 +38,11 @@
   var STATE = { MENU: 0, CUTSCENE: 1, PLAY: 2, RESULT: 3, OVER: 4, ENDING: 5 };
   var COOLDOWN_MAX = 42;   // bolt-action reload between shots (~0.7s)
   var VIEW_W = SCENES.VIEW || 512;   // the visible slice of the scrolling world
+  // Scoped-sniper view: enemies read as distant in the hip view; you pinch-in
+  // (double-click) to look through the scope, where the world is magnified.
+  var HIP_ACTOR = 0.62;    // actors drawn small in the hip view (feel far)
+  var SCOPE_Z = 3.0;       // scope magnification
+  var SCOPE_R = 152;       // scope lens radius (screen px)
 
   var game = {
     state: STATE.MENU,
@@ -62,6 +67,8 @@
     cut: null,             // active cutscene controller
     cutNext: null,         // what to do when the cutscene finishes
     finisher: null,        // GUILTY sequence (freezes the world)
+    scoped: false,         // looking through the scope (can fire; camera frozen)
+    hintTimer: 0,          // "look through the scope" nudge
     effects: [],           // hit sparks
     tracers: [],           // enemy fire lines
     shotFlash: 0,
@@ -128,11 +135,12 @@
     showOverlayHTML("menu",
       '<h1>OKB</h1>' +
       '<p class="subtitle">' + STORY.subtitle + '</p>' +
-      '<p class="lede">あなたは屋上のスナイパー。<br>' +
+      '<p class="lede">あなたは屋上のスナイパー。敵は<b>遠く</b>にいる。<br>' +
       '護衛対象（前作の主人公）が自ら出口へ歩く。<br>' +
-      '妨害しに現れる敵をタップ／クリックで狙撃し、守り抜け。</p>' +
+      '狙う敵を<b>スコープで拡大</b>し、照準を合わせて撃て。</p>' +
       '<ul class="controls">' +
-      '<li>🖱 / 👆 <b>照準＆射撃</b>（1発ごとにリロード）</li>' +
+      '<li>🔭 <b>ダブルクリック / ピンチイン</b>でスコープON／OFF</li>' +
+      '<li>🖱 / 👆 スコープ中に<b>照準＆射撃</b>（1発ごとにリロード）</li>' +
       '<li>🟥 <b>敵</b>（撃つ）｜ 🟦 <b>護衛対象</b>（守る・撃つな）</li>' +
       '<li>⚠ <b>誤射3回で失敗</b>。誤射のたび護衛は遅くなり敵も増える</li>' +
       '</ul>' +
@@ -193,6 +201,8 @@
     game.killed = 0;
     game.shots = 0;
     game.finisher = null;
+    game.scoped = false;
+    game.hintTimer = 0;
     game.effects = [];
     game.tracers = [];
     game.bonusSpawns = [];
@@ -492,18 +502,35 @@
     for (var t = game.tracers.length - 1; t >= 0; t--) { if (++game.tracers[t].t > 12) game.tracers.splice(t, 1); }
     for (var f = game.effects.length - 1; f >= 0; f--) { if (++game.effects[f].t > 20) game.effects.splice(f, 1); }
 
-    // The boss finisher freezes the world.
-    if (game.finisher) { updateFinisher(); while (Input.takeFire()) {} return; }
+    // The finisher freezes the world; ignore aiming input during it.
+    if (game.finisher) { updateFinisher(); while (Input.takeFire()) {} while (Input.takeGesture()) {} return; }
+
+    if (game.hintTimer > 0) game.hintTimer--;
+
+    // Fire taps are evaluated against the CURRENT scope state first (so the
+    // first click of a scope-toggling double-click doesn't auto-fire on entry);
+    // then pinch / double-click gestures toggle the scope. Shots only land
+    // while scoped — firing from the hip just nudges the player to scope in.
+    var f;
+    while ((f = Input.takeFire())) {
+      if (game.scoped) handleShoot(toWorld(f));
+      else nudgeScope();
+    }
+    var g;
+    while ((g = Input.takeGesture())) {
+      if (g.kind === "in") scopeIn();
+      else if (g.kind === "out") scopeOut();
+      else { if (game.scoped) scopeOut(); else scopeIn(); }
+    }
+    if (game.finisher || game.state !== STATE.PLAY) { syncHud(); return; }
 
     if (game.cooldown > 0) game.cooldown--;
     game.frame++;
 
     if (game.mode === "hunt") {
       var hev = game.traitor.update();
-      updateCamera(game.traitor);
+      if (!game.scoped) updateCamera(game.traitor);
       if (hev === "escaped") { missionFail(); return; }
-      var htap = Input.takeFire();
-      if (htap) handleShoot(toWorld(htap));
       syncHud();
       return;
     }
@@ -512,15 +539,18 @@
     spawnDue();
     processBonus();
     updateEnemies();
-    updateCamera(game.escort);
+    if (!game.scoped) updateCamera(game.escort);
 
     if (game.escort.hp <= 0) { missionFail(); return; }
     if (game.escort.arrived) { snd("arrive"); missionClear(); return; }
 
-    var tap = Input.takeFire();
-    if (tap) handleShoot(toWorld(tap));
-
     syncHud();
+  }
+
+  function scopeIn() { if (!game.scoped) { game.scoped = true; snd("lock"); } }
+  function scopeOut() { if (game.scoped) { game.scoped = false; snd("reload"); } }
+  function nudgeScope() {
+    if (game.hintTimer <= 0) { flash("スコープを覗け（ダブルクリック / ピンチ）", "#9fd0ff"); game.hintTimer = 90; }
   }
 
   // ---- Draw ---------------------------------------------------------------
@@ -537,43 +567,128 @@
     }
 
     // PLAY.
-    ctx.save();
     var fn = game.finisher;
-    if (fn && fn.phase !== "guilty") {
-      var z = snipeZoom(fn);
-      var zx = fn.enemy.x + fn.enemy.w / 2 - game.camX;   // finisher target, screen space
-      var zy = fn.enemy.y + 8;
-      var shake = fn.phase === "fire" ? (Math.random() - 0.5) * 6 : 0;
-      ctx.translate(zx + shake, zy + shake);
-      ctx.scale(z, z);
-      ctx.translate(-zx, -zy);
+    if (fn) {
+      ctx.save();
+      if (fn.phase !== "guilty") {
+        var z = snipeZoom(fn);
+        var zx = fn.enemy.x + fn.enemy.w / 2 - game.camX;
+        var zy = fn.enemy.y + 8;
+        var shake = fn.phase === "fire" ? (Math.random() - 0.5) * 6 : 0;
+        ctx.translate(zx + shake, zy + shake); ctx.scale(z, z); ctx.translate(-zx, -zy);
+      }
+      ctx.translate(-Math.round(game.camX), 0);
+      drawWorldContent(1);
+      ctx.restore();
+      if (fn.phase === "guilty") drawGuiltyCut(fn.t);
+      else if (fn.phase === "after") drawAfterglow(fn);
+      else drawScope(fn);
+    } else {
+      // Hip view: the whole field at a distance (small figures).
+      ctx.save();
+      ctx.translate(-Math.round(game.camX), 0);
+      drawWorldContent(HIP_ACTOR);
+      ctx.restore();
+      drawDistanceHaze();
+      if (game.scoped) drawScopeView();
+      else drawHipReticle();
     }
-    ctx.translate(-Math.round(game.camX), 0);   // horizontal camera
+    if (game.shotFlash > 0) { ctx.fillStyle = "rgba(255,255,255,0.14)"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    if (game.msgTimer > 0) drawFlash();
+  }
 
+  // Draw the world (bg, exit, actors, fx). `actorScale` shrinks living figures
+  // so the hip view reads as distant; the scope re-draws them at 1.
+  function drawWorldContent(actorScale) {
     game.scene.drawBg(ctx, game.worldW);
     drawExit();
     if (game.mode === "hunt") {
-      // Occlude a hidden traitor behind cover; keep an exposed one on top.
-      if (game.traitor.exposed) { drawCovers(); game.traitor.draw(ctx); }
-      else { game.traitor.draw(ctx); drawCovers(); }
+      if (game.traitor.exposed) { drawCovers(); drawActor(game.traitor, actorScale); }
+      else { drawActor(game.traitor, actorScale); drawCovers(); }
     } else {
-      if (game.escort) game.escort.draw(ctx);
-      for (var i = 0; i < game.enemies.length; i++) game.enemies[i].draw(ctx);
+      if (game.escort) drawActor(game.escort, actorScale);
+      for (var i = 0; i < game.enemies.length; i++) drawActor(game.enemies[i], actorScale);
       if (game.escort) drawEscortHp();
     }
     drawTracers();
     drawSparks();
-    ctx.restore();
+  }
 
-    if (!fn) drawReticle();
+  function drawActor(ent, s) {
+    if (s === 1) { ent.draw(ctx); return; }
+    var fx = ent.x + ent.w / 2, fy = ent.y + ent.h;
+    ctx.save(); ctx.translate(fx, fy); ctx.scale(s, s); ctx.translate(-fx, -fy);
+    ent.draw(ctx); ctx.restore();
+  }
 
-    if (fn) {
-      if (fn.phase === "guilty") drawGuiltyCut(fn.t);
-      else if (fn.phase === "after") drawAfterglow(fn);
-      else drawScope(fn);
+  function drawDistanceHaze() {
+    var g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    g.addColorStop(0, "rgba(150,170,200,0.05)");
+    g.addColorStop(0.6, "rgba(120,140,175,0.10)");
+    g.addColorStop(1, "rgba(90,110,150,0.04)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function drawHipReticle() {
+    var a = Input.aim();
+    if (a.inside) {
+      var x = a.x, y = a.y;
+      ctx.save();
+      ctx.strokeStyle = "rgba(210,220,235,0.5)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 12, y); ctx.lineTo(x - 4, y); ctx.moveTo(x + 4, y); ctx.lineTo(x + 12, y);
+      ctx.moveTo(x, y - 12); ctx.lineTo(x, y - 4); ctx.moveTo(x, y + 4); ctx.lineTo(x, y + 12);
+      ctx.stroke();
+      ctx.restore();
     }
-    if (game.shotFlash > 0) { ctx.fillStyle = "rgba(255,255,255,0.14)"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-    if (game.msgTimer > 0) drawFlash();
+    ctx.save();
+    ctx.fillStyle = "rgba(159,208,255,0.7)";
+    ctx.font = "11px 'Courier New', monospace"; ctx.textAlign = "center";
+    ctx.fillText("ダブルクリック / ピンチイン → スコープ", canvas.width / 2, canvas.height - 12);
+    ctx.textAlign = "left"; ctx.restore();
+  }
+
+  // The scope: dim the field, then a magnified circular lens follows the aim.
+  function drawScopeView() {
+    var a = Input.aim();
+    var psx = a.inside ? a.x : canvas.width / 2;
+    var psy = a.inside ? a.y : canvas.height / 2;
+    var W = canvas.width, H = canvas.height;
+    ctx.fillStyle = "rgba(2,3,8,0.9)"; ctx.fillRect(0, 0, W, H);   // tunnel-vision
+    ctx.save();
+    ctx.beginPath(); ctx.arc(psx, psy, SCOPE_R, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = "#0b1420"; ctx.fillRect(psx - SCOPE_R, psy - SCOPE_R, SCOPE_R * 2, SCOPE_R * 2);
+    ctx.translate(psx, psy); ctx.scale(SCOPE_Z, SCOPE_Z); ctx.translate(-psx, -psy);
+    ctx.translate(-game.camX, 0);
+    drawWorldContent(1);
+    ctx.restore();
+    drawScopeRing(psx, psy);
+  }
+
+  function drawScopeRing(cx, cy) {
+    var R = SCOPE_R;
+    var wx = cx + game.camX, onTarget = false;
+    if (game.mode === "hunt") onTarget = !!(game.traitor && game.traitor.hit(wx, cy));
+    else for (var i = 0; i < game.enemies.length; i++) if (game.enemies[i].hit(wx, cy)) { onTarget = true; break; }
+    var ready = game.cooldown <= 0;
+    ctx.save();
+    ctx.lineWidth = 12; ctx.strokeStyle = "#04050a"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#2a3350"; ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.clip();
+    ctx.strokeStyle = onTarget ? "rgba(255,70,70,0.95)" : "rgba(200,215,235,0.7)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+    for (var k = -8; k <= 8; k++) { if (!k) continue; ctx.beginPath(); ctx.moveTo(cx + k * 12, cy - 3); ctx.lineTo(cx + k * 12, cy + 3); ctx.moveTo(cx - 3, cy + k * 12); ctx.lineTo(cx + 3, cy + k * 12); ctx.stroke(); }
+    ctx.fillStyle = onTarget ? "rgba(255,50,50,0.95)" : "rgba(220,230,245,0.9)"; ctx.fillRect(cx - 2, cy - 2, 4, 4);
+    if (!ready) { ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 3; var pr = 1 - game.cooldown / COOLDOWN_MAX; ctx.beginPath(); ctx.arc(cx, cy, 26, -Math.PI / 2, -Math.PI / 2 + pr * Math.PI * 2); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = "#ff6a6a"; ctx.font = "bold 12px 'Courier New', monospace"; ctx.textAlign = "center";
+    ctx.fillText("O K B", cx, cy - R + 20);
+    ctx.fillStyle = "rgba(180,200,230,0.7)"; ctx.font = "10px 'Courier New', monospace";
+    ctx.fillText(ready ? "READY" : "RELOAD", cx, cy + R - 12);
+    ctx.textAlign = "left";
+    ctx.restore();
   }
 
   function drawCovers() {
@@ -629,40 +744,6 @@
       ctx.fillStyle = i < e.hp ? "#5aa0ff" : "rgba(120,130,140,0.35)";
       ctx.fillRect(cx - e.maxHp * 3 + i * 6, e.y - 10, 4, 4);
     }
-  }
-
-  function drawReticle() {
-    var a = Input.aim();
-    if (!a.inside) return;
-    var x = a.x, y = a.y;
-    var wx = x + game.camX;                  // world x under the reticle
-    var ready = game.cooldown <= 0;
-    var onEnemy = false;
-    if (game.mode === "hunt") {
-      onEnemy = !!(game.traitor && game.traitor.hit(wx, y));
-    } else {
-      for (var i = 0; i < game.enemies.length; i++) {
-        if (game.enemies[i].hit(wx, y)) { onEnemy = true; break; }
-      }
-    }
-    ctx.save();
-    var col = !ready ? "rgba(150,160,175,0.7)" : onEnemy ? "rgba(255,70,70,0.95)" : "rgba(230,236,245,0.85)";
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x - 20, y); ctx.lineTo(x - 6, y);
-    ctx.moveTo(x + 6, y); ctx.lineTo(x + 20, y);
-    ctx.moveTo(x, y - 20); ctx.lineTo(x, y - 6);
-    ctx.moveTo(x, y + 6); ctx.lineTo(x, y + 20);
-    ctx.stroke();
-    // Reload arc.
-    if (!ready) {
-      ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 3;
-      var prog = 1 - game.cooldown / COOLDOWN_MAX;
-      ctx.beginPath(); ctx.arc(x, y, 18, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); ctx.stroke();
-    }
-    ctx.fillStyle = col; ctx.fillRect(x - 1, y - 1, 2, 2);
-    ctx.restore();
   }
 
   function drawFlash() {
