@@ -77,6 +77,34 @@ html, body {
   touch-action: none;
 }
 
+#action-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.act-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px;
+  border: 1px solid #2a3446;
+  border-radius: 10px;
+  background: #141a24;
+  color: var(--ink);
+  font: 700 18px/1 "Courier New", monospace;
+  letter-spacing: 2px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: transform 0.05s ease, filter 0.1s ease, background 0.1s ease;
+}
+.act-btn small { font: 400 10px/1 system-ui, sans-serif; letter-spacing: 0; color: #7d8ba3; }
+.act-btn.shot { background: #3a1620; border-color: #7a2a3a; color: #ff8a8a; }
+.act-btn.reload { background: #26210f; border-color: #6a5a24; color: #ffd166; }
+.act-btn:active, .act-btn.pressed { transform: translateY(1px); filter: brightness(1.25); }
+
 #hint {
   margin: 8px 2px 0;
   font-size: 11px;
@@ -382,37 +410,48 @@ button.secondary { background: #26303f; color: var(--ink); }
 /**
  * Input handling for OKB.
  *
- * OKB is aimed with a pointer, and — as of the "scoped sniper" model — shots
- * only land while looking through the scope. So this module reports:
- *   - the live reticle position (Input.aim),
- *   - FIRE taps (single click / single-finger tap-or-drag release), and
- *   - SCOPE gestures: pinch-in / pinch-out (touch) and double-click (mouse),
- *     surfaced via Input.takeGesture() as {kind:"in"|"out"|"toggle"}.
- *
- * Keyboard edge-detection (`pressed`) is kept for advancing menus/cutscenes.
+ * The pointer only AIMS and toggles the scope — it never fires (tapping to
+ * shoot nudged the aim off target). Firing and reloading are dedicated
+ * controls: on-screen SHOT / RELOAD buttons and keys (Space/F = shot, R =
+ * reload). This module reports:
+ *   - the live reticle position (Input.aim), which persists after release,
+ *   - SCOPE gestures via Input.takeGesture() → {kind:"in"|"out"|"toggle"}
+ *     (pinch on touch, double-click on mouse),
+ *   - edge-detected actions Input.pressed("shot"|"reload"|"start") from keys
+ *     and bound buttons.
  */
 (function (global) {
   "use strict";
 
-  var KEY_MAP = { Enter: "start", Space: "start", KeyZ: "start" };
-  var down = {}, last = {};
+  // Keyboard: advancing menus/cutscenes vs. the trigger/reload.
+  var KEY_MAP = {
+    Enter: "start", KeyZ: "start",
+    Space: "shot", KeyF: "shot",
+    KeyR: "reload"
+  };
+  var down = {}, last = {}, pending = {};   // pending = latched press edges
 
+  function fireAction(action) { pending[action] = (pending[action] || 0) + 1; }  // one press
+  function setAction(action, v) {
+    if (!action) return;
+    if (v && !down[action]) fireAction(action);   // latch on the up->down edge
+    down[action] = v;
+  }
   function onKey(e, isDown) {
     var action = KEY_MAP[e.code];
     if (!action) return;
     e.preventDefault();
-    down[action] = isDown;
+    setAction(action, isDown);
   }
   window.addEventListener("keydown", function (e) { onKey(e, true); });
   window.addEventListener("keyup", function (e) { onKey(e, false); });
   window.addEventListener("blur", function () { down = {}; });
 
-  // ---- Pointer / gestures -------------------------------------------------
+  // ---- Pointer / gestures (aim + scope toggle only) ----------------------
 
   var aim = { x: 256, y: 240, inside: false };
-  var fireQ = [];      // {x,y} canvas-space fire taps
-  var gestureQ = [];   // {kind:"in"|"out"|"toggle"}
-  var pointers = {};   // active pointers by id
+  var gestureQ = [];
+  var pointers = {};
   var pinch = { active: false, start: 0, fired: false };
   var lastTap = { t: 0, x: 0, y: 0 };
 
@@ -427,14 +466,15 @@ button.secondary { background: #26303f; color: var(--ink); }
   var Input = {
     held: function (a) { return !!down[a]; },
     pressed: function (a) { return !!down[a] && !last[a]; },
+    /** True once per press; latched so taps shorter than a frame aren't lost. */
+    consume: function (a) { if (pending[a] > 0) { pending[a] = 0; return true; } return false; },
     endFrame: function () {
       for (var k in down) last[k] = down[k];
       for (var j in last) if (!(j in down)) last[j] = false;
     },
-    reset: function () { down = {}; last = {}; fireQ.length = 0; gestureQ.length = 0; pointers = {}; pinch.active = false; },
+    reset: function () { down = {}; last = {}; pending = {}; gestureQ.length = 0; pointers = {}; pinch.active = false; },
 
     aim: function () { return aim; },
-    takeFire: function () { return fireQ.length ? fireQ.shift() : null; },
     takeGesture: function () { return gestureQ.length ? gestureQ.shift() : null; },
 
     bindPointer: function (canvas) {
@@ -463,22 +503,39 @@ button.secondary { background: #26303f; color: var(--ink); }
         var pt = pointers[e.pointerId];
         var wasPinch = pinch.active;
         delete pointers[e.pointerId];
-        if (wasPinch) { if (count(pointers) < 2) pinch.active = false; return; } // pinch fingers never fire
+        if (wasPinch) { if (count(pointers) < 2) pinch.active = false; return; }
         if (!pt) return;
         var now = Date.now(), p = toCanvas(e);
-        if (now - pt.downT > 1500) return;   // stale / long hold — ignore
-        // Double-click / double-tap toggles the scope; a single tap fires.
+        if (now - pt.downT > 1500) return;
+        // Double-click / double-tap toggles the scope. A single tap does NOT
+        // fire (the reticle just stays where it was) — firing is the SHOT key/button.
         if (now - lastTap.t < 350 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 30) {
           gestureQ.push({ kind: "toggle" });
           lastTap.t = 0;
         } else {
-          fireQ.push({ x: p.x, y: p.y });
           lastTap = { t: now, x: p.x, y: p.y };
         }
       }
       canvas.addEventListener("pointerup", endPointer);
       canvas.addEventListener("pointercancel", function (e) { delete pointers[e.pointerId]; if (count(pointers) < 2) pinch.active = false; });
+      canvas.addEventListener("pointerleave", function () { /* keep last aim; only mouse-out clears */ aim.inside = ("ontouchstart" in window) ? aim.inside : false; });
       canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    },
+
+    /** Wire on-screen buttons (id -> action) into the same edge-detected state. */
+    bindButtons: function (map) {
+      Object.keys(map).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var action = map[id];
+        var press = function (e) { e.preventDefault(); setAction(action, true); el.classList.add("pressed"); };
+        var release = function (e) { if (e) e.preventDefault(); setAction(action, false); el.classList.remove("pressed"); };
+        el.addEventListener("pointerdown", press);
+        el.addEventListener("pointerup", release);
+        el.addEventListener("pointercancel", release);
+        el.addEventListener("pointerleave", release);
+        el.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      });
     }
   };
 
@@ -1126,8 +1183,9 @@ button.secondary { background: #26303f; color: var(--ink); }
  * Reused from the Elevator Action engine: the state-machine + single tick()
  * loop, the synthesized Sound, the AABB hit-test, and the OKB sniper cinematic
  * (drawScope / drawGuiltyCut). Unlike the original, a normal kill does NOT
- * freeze the world (you must keep protecting) — instead a bolt-action cooldown
- * paces the shots. The full "GUILTY" freeze is reserved as a boss finisher.
+ * freeze the world (you must keep protecting). You aim through a magnifying
+ * scope and fire with a dedicated trigger; the bolt is re-chambered by a manual
+ * RELOAD. The full "GUILTY" freeze is reserved for boss / traitor finishers.
  */
 (function (global) {
   "use strict";
@@ -1153,7 +1211,7 @@ button.secondary { background: #26303f; color: var(--ink); }
   };
 
   var STATE = { MENU: 0, CUTSCENE: 1, PLAY: 2, RESULT: 3, OVER: 4, ENDING: 5 };
-  var COOLDOWN_MAX = 42;   // bolt-action reload between shots (~0.7s)
+  var RELOAD_TIME = 30;    // manual bolt re-chamber (~0.5s) after pressing RELOAD
   var VIEW_W = SCENES.VIEW || 512;   // the visible slice of the scrolling world
   // Scoped-sniper view: enemies read as distant in the hip view; you pinch-in
   // (double-click) to look through the scope, where the world is magnified.
@@ -1171,7 +1229,8 @@ button.secondary { background: #26303f; color: var(--ink); }
     enemies: [],
     spawnIdx: 0,
     frame: 0,
-    cooldown: 0,
+    loaded: true,          // is a round chambered? (fire empties it; RELOAD refills)
+    reloadTimer: 0,        // >0 while re-chambering
     killed: 0,
     shots: 0,
     misfires: 0,           // run-wide friendly-fire count (3 = game over; carries to finale)
@@ -1213,6 +1272,7 @@ button.secondary { background: #26303f; color: var(--ink); }
 
   function init() {
     Input.bindPointer(canvas);
+    Input.bindButtons({ "btn-shot": "shot", "btn-reload": "reload" });
     var st = document.getElementById("sound-toggle");
     if (st) st.addEventListener("click", toggleSound);
     window.addEventListener("keydown", function (e) {
@@ -1256,8 +1316,9 @@ button.secondary { background: #26303f; color: var(--ink); }
       '護衛対象（前作の主人公）が自ら出口へ歩く。<br>' +
       '狙う敵を<b>スコープで拡大</b>し、照準を合わせて撃て。</p>' +
       '<ul class="controls">' +
-      '<li>🔭 <b>ダブルクリック / ピンチイン</b>でスコープON／OFF</li>' +
-      '<li>🖱 / 👆 スコープ中に<b>照準＆射撃</b>（1発ごとにリロード）</li>' +
+      '<li>🔭 <b>ダブルクリック / ピンチイン</b>でスコープ（照準はドラッグ）</li>' +
+      '<li>🔫 <b>SHOT</b>ボタン / Space・F で発砲（照準はズレない）</li>' +
+      '<li>🔄 <b>RELOAD</b>ボタン / R で再装填（＝スコープ解除・手動）</li>' +
       '<li>🟥 <b>敵</b>（撃つ）｜ 🟦 <b>護衛対象</b>（守る・撃つな）</li>' +
       '<li>⚠ <b>誤射3回で失敗</b>。誤射のたび護衛は遅くなり敵も増える</li>' +
       '</ul>' +
@@ -1314,7 +1375,8 @@ button.secondary { background: #26303f; color: var(--ink); }
     game.enemies = [];
     game.spawnIdx = 0;
     game.frame = 0;
-    game.cooldown = 0;
+    game.loaded = true;
+    game.reloadTimer = 0;
     game.killed = 0;
     game.shots = 0;
     game.finisher = null;
@@ -1346,7 +1408,7 @@ button.secondary { background: #26303f; color: var(--ink); }
       for (var m = 0; m < game.misfires; m++) game.bonusSpawns.push(140 + m * 170);
       game.camX = 0;
     }
-    while (Input.takeFire()) {}
+    while (Input.takeGesture()) {}
     hideOverlay();
     game.state = STATE.PLAY;
     if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
@@ -1492,39 +1554,33 @@ button.secondary { background: #26303f; color: var(--ink); }
 
   // ---- Shooting -----------------------------------------------------------
 
-  function handleShoot(p) {
-    if (game.cooldown > 0) { snd("empty"); return; }   // still cycling the bolt
+  // Resolve one fired round at world point p. Empties the chamber (manual
+  // RELOAD required for the next shot). Called only when loaded & scoped.
+  function resolveShot(p) {
     game.shots++;
+    game.loaded = false;
+    game.shotFlash = 6;
     if (game.mode === "hunt") {
-      // Only a caught-in-the-open traitor can be hit. It takes several shots;
-      // the killing blow triggers the GUILTY finisher.
       if (game.traitor && game.traitor.hit(p.x, p.y)) {
         game.traitor.hp--;
-        game.shotFlash = 6;
         addSpark(game.traitor.x + game.traitor.w / 2, game.traitor.y + 8, "#ff5a5a");
         if (game.traitor.hp <= 0) { startFinisher(game.traitor); }
-        else { game.traitor.stumble(); snd("snipe"); addScore(300); flash("命中！ 残り " + game.traitor.hp, "#ffd166"); fireCooldown(); }
-        return;
-      }
-      game.shotFlash = 6; snd("snipe"); fireCooldown();
+        else { game.traitor.stumble(); snd("snipe"); addScore(300); flash("命中！ 残り " + game.traitor.hp, "#ffd166"); }
+      } else { snd("snipe"); }
       return;
     }
-    // Topmost enemy under the tap wins.
+    // Topmost enemy under the crosshair wins.
     for (var i = game.enemies.length - 1; i >= 0; i--) {
       var e = game.enemies[i];
       if (e.hit(p.x, p.y)) {
-        if (e.boss) { startFinisher(e); return; }   // boss = dramatic GUILTY, no cooldown
-        killEnemy(e);
-        fireCooldown();
+        if (e.boss) startFinisher(e);   // boss = dramatic GUILTY
+        else killEnemy(e);
         return;
       }
     }
-    // Hitting the escort is FRIENDLY FIRE — a serious mistake.
+    // Hitting the escort is FRIENDLY FIRE.
     if (game.escort && game.escort.hit(p.x, p.y)) { onMisfire(); return; }
-    // Missed shot into empty air — still costs a reload cycle.
-    game.shotFlash = 6;
-    snd("snipe");
-    fireCooldown();
+    snd("snipe");   // clean miss
   }
 
   // Friendly fire: run-wide count. Each one slows the escort and adds enemies;
@@ -1543,7 +1599,6 @@ button.secondary { background: #26303f; color: var(--ink); }
     if (game.escort) game.escort.speed *= 0.8;                 // permanent slow
     game.bonusSpawns.push(game.frame + 30, game.frame + 70);   // more enemies
     flash("誤射！ 護衛対象を撃つな（" + game.misfires + "/3）", "#ff5a5a");
-    fireCooldown();
     syncHud();
   }
 
@@ -1552,13 +1607,7 @@ button.secondary { background: #26303f; color: var(--ink); }
     game.killed++;
     addScore(500);
     addSpark(e.x + e.w / 2, e.y + 6, "#ff5a5a");
-    game.shotFlash = 6;
     snd("snipe");
-  }
-
-  function fireCooldown() {
-    game.cooldown = COOLDOWN_MAX;
-    setTimeout(function () { snd("reload"); }, 180);
   }
 
   // Boss finisher: the one place the full "GUILTY" freeze returns.
@@ -1584,7 +1633,6 @@ button.secondary { background: #26303f; color: var(--ink); }
       s.phase = "after"; s.t = 0;
     } else if (s.phase === "after" && s.t >= SNIPE.after) {
       game.finisher = null;
-      game.cooldown = 16;
       if (game.mode === "hunt") missionClear();   // the traitor is down — mission over
     }
   }
@@ -1605,11 +1653,10 @@ button.secondary { background: #26303f; color: var(--ink); }
     if (game.state === STATE.CUTSCENE) {
       if (game.cut) {
         game.cut.update();
-        if (Input.pressed("start")) game.cut.advance();
+        if (Input.consume("start")) game.cut.advance();
         if (game.cut.finished) { var n = game.cutNext; game.cut = null; game.cutNext = null; if (n) n(); }
       }
-      // Consume any stray taps so they don't leak into PLAY.
-      while (Input.takeFire()) {}
+      while (Input.takeGesture()) {}   // drain stray gestures
       return;
     }
 
@@ -1620,28 +1667,23 @@ button.secondary { background: #26303f; color: var(--ink); }
     for (var f = game.effects.length - 1; f >= 0; f--) { if (++game.effects[f].t > 20) game.effects.splice(f, 1); }
 
     // The finisher freezes the world; ignore aiming input during it.
-    if (game.finisher) { updateFinisher(); while (Input.takeFire()) {} while (Input.takeGesture()) {} return; }
+    if (game.finisher) { updateFinisher(); while (Input.takeGesture()) {} return; }
 
     if (game.hintTimer > 0) game.hintTimer--;
+    if (game.reloadTimer > 0 && --game.reloadTimer === 0) { game.loaded = true; }
 
-    // Fire taps are evaluated against the CURRENT scope state first (so the
-    // first click of a scope-toggling double-click doesn't auto-fire on entry);
-    // then pinch / double-click gestures toggle the scope. Shots only land
-    // while scoped — firing from the hip just nudges the player to scope in.
-    var f;
-    while ((f = Input.takeFire())) {
-      if (game.scoped) handleShoot(toWorld(f));
-      else nudgeScope();
-    }
+    // Scope toggle via pinch / double-click.
     var g;
     while ((g = Input.takeGesture())) {
       if (g.kind === "in") scopeIn();
       else if (g.kind === "out") scopeOut();
       else { if (game.scoped) scopeOut(); else scopeIn(); }
     }
+    // Dedicated trigger / reload (buttons or keys) — the reticle never moves.
+    if (Input.consume("reload")) doReload();
+    if (Input.consume("shot")) doShot();
     if (game.finisher || game.state !== STATE.PLAY) { syncHud(); return; }
 
-    if (game.cooldown > 0) game.cooldown--;
     game.frame++;
 
     if (game.mode === "hunt") {
@@ -1665,9 +1707,24 @@ button.secondary { background: #26303f; color: var(--ink); }
   }
 
   function scopeIn() { if (!game.scoped) { game.scoped = true; snd("lock"); } }
-  function scopeOut() { if (game.scoped) { game.scoped = false; snd("reload"); } }
+  function scopeOut() { if (game.scoped) { game.scoped = false; snd("ui"); } }
   function nudgeScope() {
     if (game.hintTimer <= 0) { flash("スコープを覗け（ダブルクリック / ピンチ）", "#9fd0ff"); game.hintTimer = 90; }
+  }
+
+  // SHOT: fire at the current reticle (only through the scope, with a round).
+  function doShot() {
+    if (!game.scoped) { nudgeScope(); return; }
+    if (game.reloadTimer > 0) { snd("empty"); return; }
+    if (!game.loaded) { snd("empty"); if (game.hintTimer <= 0) { flash("空薬室 ―― RELOAD（R）", "#ffd166"); game.hintTimer = 80; } return; }
+    var a = Input.aim();
+    resolveShot({ x: a.x + game.camX, y: a.y });
+  }
+
+  // RELOAD: always drops the scope (lower the rifle); re-chambers if spent.
+  function doReload() {
+    scopeOut();
+    if (!game.loaded && game.reloadTimer <= 0) { game.reloadTimer = RELOAD_TIME; snd("reload"); }
   }
 
   // ---- Draw ---------------------------------------------------------------
@@ -1788,22 +1845,25 @@ button.secondary { background: #26303f; color: var(--ink); }
     var wx = cx + game.camX, onTarget = false;
     if (game.mode === "hunt") onTarget = !!(game.traitor && game.traitor.hit(wx, cy));
     else for (var i = 0; i < game.enemies.length; i++) if (game.enemies[i].hit(wx, cy)) { onTarget = true; break; }
-    var ready = game.cooldown <= 0;
+    var reloading = game.reloadTimer > 0;
     ctx.save();
     ctx.lineWidth = 12; ctx.strokeStyle = "#04050a"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 2; ctx.strokeStyle = "#2a3350"; ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.stroke();
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.clip();
-    ctx.strokeStyle = onTarget ? "rgba(255,70,70,0.95)" : "rgba(200,215,235,0.7)"; ctx.lineWidth = 1;
+    // Crosshair: red on a valid target when a round is chambered; dim otherwise.
+    var cross = !game.loaded ? "rgba(150,160,175,0.6)" : onTarget ? "rgba(255,70,70,0.95)" : "rgba(200,215,235,0.7)";
+    ctx.strokeStyle = cross; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
     for (var k = -8; k <= 8; k++) { if (!k) continue; ctx.beginPath(); ctx.moveTo(cx + k * 12, cy - 3); ctx.lineTo(cx + k * 12, cy + 3); ctx.moveTo(cx - 3, cy + k * 12); ctx.lineTo(cx + 3, cy + k * 12); ctx.stroke(); }
-    ctx.fillStyle = onTarget ? "rgba(255,50,50,0.95)" : "rgba(220,230,245,0.9)"; ctx.fillRect(cx - 2, cy - 2, 4, 4);
-    if (!ready) { ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 3; var pr = 1 - game.cooldown / COOLDOWN_MAX; ctx.beginPath(); ctx.arc(cx, cy, 26, -Math.PI / 2, -Math.PI / 2 + pr * Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = cross; ctx.fillRect(cx - 2, cy - 2, 4, 4);
+    if (reloading) { ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 3; var pr = 1 - game.reloadTimer / RELOAD_TIME; ctx.beginPath(); ctx.arc(cx, cy, 26, -Math.PI / 2, -Math.PI / 2 + pr * Math.PI * 2); ctx.stroke(); }
     ctx.restore();
     ctx.fillStyle = "#ff6a6a"; ctx.font = "bold 12px 'Courier New', monospace"; ctx.textAlign = "center";
     ctx.fillText("O K B", cx, cy - R + 20);
-    ctx.fillStyle = "rgba(180,200,230,0.7)"; ctx.font = "10px 'Courier New', monospace";
-    ctx.fillText(ready ? "READY" : "RELOAD", cx, cy + R - 12);
+    ctx.fillStyle = game.loaded ? "rgba(180,230,190,0.85)" : "rgba(255,180,120,0.9)";
+    ctx.font = "10px 'Courier New', monospace";
+    ctx.fillText(reloading ? "RELOADING…" : game.loaded ? "● LOADED" : "○ EMPTY  R:RELOAD", cx, cy + R - 12);
     ctx.textAlign = "left";
     ctx.restore();
   }

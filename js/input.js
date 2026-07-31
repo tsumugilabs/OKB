@@ -1,37 +1,48 @@
 /**
  * Input handling for OKB.
  *
- * OKB is aimed with a pointer, and — as of the "scoped sniper" model — shots
- * only land while looking through the scope. So this module reports:
- *   - the live reticle position (Input.aim),
- *   - FIRE taps (single click / single-finger tap-or-drag release), and
- *   - SCOPE gestures: pinch-in / pinch-out (touch) and double-click (mouse),
- *     surfaced via Input.takeGesture() as {kind:"in"|"out"|"toggle"}.
- *
- * Keyboard edge-detection (`pressed`) is kept for advancing menus/cutscenes.
+ * The pointer only AIMS and toggles the scope — it never fires (tapping to
+ * shoot nudged the aim off target). Firing and reloading are dedicated
+ * controls: on-screen SHOT / RELOAD buttons and keys (Space/F = shot, R =
+ * reload). This module reports:
+ *   - the live reticle position (Input.aim), which persists after release,
+ *   - SCOPE gestures via Input.takeGesture() → {kind:"in"|"out"|"toggle"}
+ *     (pinch on touch, double-click on mouse),
+ *   - edge-detected actions Input.pressed("shot"|"reload"|"start") from keys
+ *     and bound buttons.
  */
 (function (global) {
   "use strict";
 
-  var KEY_MAP = { Enter: "start", Space: "start", KeyZ: "start" };
-  var down = {}, last = {};
+  // Keyboard: advancing menus/cutscenes vs. the trigger/reload.
+  var KEY_MAP = {
+    Enter: "start", KeyZ: "start",
+    Space: "shot", KeyF: "shot",
+    KeyR: "reload"
+  };
+  var down = {}, last = {}, pending = {};   // pending = latched press edges
 
+  function fireAction(action) { pending[action] = (pending[action] || 0) + 1; }  // one press
+  function setAction(action, v) {
+    if (!action) return;
+    if (v && !down[action]) fireAction(action);   // latch on the up->down edge
+    down[action] = v;
+  }
   function onKey(e, isDown) {
     var action = KEY_MAP[e.code];
     if (!action) return;
     e.preventDefault();
-    down[action] = isDown;
+    setAction(action, isDown);
   }
   window.addEventListener("keydown", function (e) { onKey(e, true); });
   window.addEventListener("keyup", function (e) { onKey(e, false); });
   window.addEventListener("blur", function () { down = {}; });
 
-  // ---- Pointer / gestures -------------------------------------------------
+  // ---- Pointer / gestures (aim + scope toggle only) ----------------------
 
   var aim = { x: 256, y: 240, inside: false };
-  var fireQ = [];      // {x,y} canvas-space fire taps
-  var gestureQ = [];   // {kind:"in"|"out"|"toggle"}
-  var pointers = {};   // active pointers by id
+  var gestureQ = [];
+  var pointers = {};
   var pinch = { active: false, start: 0, fired: false };
   var lastTap = { t: 0, x: 0, y: 0 };
 
@@ -46,14 +57,15 @@
   var Input = {
     held: function (a) { return !!down[a]; },
     pressed: function (a) { return !!down[a] && !last[a]; },
+    /** True once per press; latched so taps shorter than a frame aren't lost. */
+    consume: function (a) { if (pending[a] > 0) { pending[a] = 0; return true; } return false; },
     endFrame: function () {
       for (var k in down) last[k] = down[k];
       for (var j in last) if (!(j in down)) last[j] = false;
     },
-    reset: function () { down = {}; last = {}; fireQ.length = 0; gestureQ.length = 0; pointers = {}; pinch.active = false; },
+    reset: function () { down = {}; last = {}; pending = {}; gestureQ.length = 0; pointers = {}; pinch.active = false; },
 
     aim: function () { return aim; },
-    takeFire: function () { return fireQ.length ? fireQ.shift() : null; },
     takeGesture: function () { return gestureQ.length ? gestureQ.shift() : null; },
 
     bindPointer: function (canvas) {
@@ -82,22 +94,39 @@
         var pt = pointers[e.pointerId];
         var wasPinch = pinch.active;
         delete pointers[e.pointerId];
-        if (wasPinch) { if (count(pointers) < 2) pinch.active = false; return; } // pinch fingers never fire
+        if (wasPinch) { if (count(pointers) < 2) pinch.active = false; return; }
         if (!pt) return;
         var now = Date.now(), p = toCanvas(e);
-        if (now - pt.downT > 1500) return;   // stale / long hold — ignore
-        // Double-click / double-tap toggles the scope; a single tap fires.
+        if (now - pt.downT > 1500) return;
+        // Double-click / double-tap toggles the scope. A single tap does NOT
+        // fire (the reticle just stays where it was) — firing is the SHOT key/button.
         if (now - lastTap.t < 350 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 30) {
           gestureQ.push({ kind: "toggle" });
           lastTap.t = 0;
         } else {
-          fireQ.push({ x: p.x, y: p.y });
           lastTap = { t: now, x: p.x, y: p.y };
         }
       }
       canvas.addEventListener("pointerup", endPointer);
       canvas.addEventListener("pointercancel", function (e) { delete pointers[e.pointerId]; if (count(pointers) < 2) pinch.active = false; });
+      canvas.addEventListener("pointerleave", function () { /* keep last aim; only mouse-out clears */ aim.inside = ("ontouchstart" in window) ? aim.inside : false; });
       canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    },
+
+    /** Wire on-screen buttons (id -> action) into the same edge-detected state. */
+    bindButtons: function (map) {
+      Object.keys(map).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var action = map[id];
+        var press = function (e) { e.preventDefault(); setAction(action, true); el.classList.add("pressed"); };
+        var release = function (e) { if (e) e.preventDefault(); setAction(action, false); el.classList.remove("pressed"); };
+        el.addEventListener("pointerdown", press);
+        el.addEventListener("pointerup", release);
+        el.addEventListener("pointercancel", release);
+        el.addEventListener("pointerleave", release);
+        el.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      });
     }
   };
 

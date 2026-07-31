@@ -69,6 +69,34 @@ html, body {
   touch-action: none;
 }
 
+#action-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.act-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px;
+  border: 1px solid #2a3446;
+  border-radius: 10px;
+  background: #141a24;
+  color: var(--ink);
+  font: 700 18px/1 "Courier New", monospace;
+  letter-spacing: 2px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: transform 0.05s ease, filter 0.1s ease, background 0.1s ease;
+}
+.act-btn small { font: 400 10px/1 system-ui, sans-serif; letter-spacing: 0; color: #7d8ba3; }
+.act-btn.shot { background: #3a1620; border-color: #7a2a3a; color: #ff8a8a; }
+.act-btn.reload { background: #26210f; border-color: #6a5a24; color: #ffd166; }
+.act-btn:active, .act-btn.pressed { transform: translateY(1px); filter: brightness(1.25); }
+
 #hint {
   margin: 8px 2px 0;
   font-size: 11px;
