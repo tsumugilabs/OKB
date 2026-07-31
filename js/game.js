@@ -498,12 +498,13 @@
     if (game.hintTimer > 0) game.hintTimer--;
     if (game.reloadTimer > 0 && --game.reloadTimer === 0) { game.loaded = true; }
 
-    // Scope toggle via pinch / double-click.
+    // Scope toggle via pinch / double-click. The gesture carries the focus
+    // point so the scope opens centred exactly where you tapped/pinched.
     var g;
     while ((g = Input.takeGesture())) {
-      if (g.kind === "in") scopeIn();
+      if (g.kind === "in") scopeIn(g);
       else if (g.kind === "out") scopeOut();
-      else { if (game.scoped) scopeOut(); else scopeIn(); }
+      else { if (game.scoped) scopeOut(); else scopeIn(g); }
     }
     // Dedicated trigger / reload (buttons or keys) — the reticle never moves.
     if (Input.consume("reload")) doReload();
@@ -532,7 +533,12 @@
     syncHud();
   }
 
-  function scopeIn() { if (!game.scoped) { game.scoped = true; snd("lock"); } }
+  function scopeIn(focus) {
+    if (game.scoped) return;
+    game.scoped = true;
+    if (focus && focus.x != null) Input.setAim(focus.x, focus.y);  // centre on the tap/pinch point
+    snd("lock");
+  }
   function scopeOut() { if (game.scoped) { game.scoped = false; snd("ui"); } }
   function nudgeScope() {
     if (game.hintTimer <= 0) { flash("スコープを覗け（ダブルクリック / ピンチ）", "#9fd0ff"); game.hintTimer = 90; }

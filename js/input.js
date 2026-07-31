@@ -47,12 +47,13 @@
   var lastTap = { t: 0, x: 0, y: 0 };
 
   function count(o) { var n = 0; for (var k in o) if (o.hasOwnProperty(k)) n++; return n; }
-  function twoDist() {
+  function twoPts() {
     var a = null, b = null;
     for (var k in pointers) { if (!pointers.hasOwnProperty(k)) continue; if (!a) a = pointers[k]; else if (!b) b = pointers[k]; }
-    if (!a || !b) return 0;
-    return Math.hypot(a.x - b.x, a.y - b.y);
+    return [a, b];
   }
+  function twoDist() { var t = twoPts(); return (t[0] && t[1]) ? Math.hypot(t[0].x - t[1].x, t[0].y - t[1].y) : 0; }
+  function twoMid() { var t = twoPts(); return (t[0] && t[1]) ? { x: (t[0].x + t[1].x) / 2, y: (t[0].y + t[1].y) / 2 } : null; }
 
   var Input = {
     held: function (a) { return !!down[a]; },
@@ -66,6 +67,7 @@
     reset: function () { down = {}; last = {}; pending = {}; gestureQ.length = 0; pointers = {}; pinch.active = false; },
 
     aim: function () { return aim; },
+    setAim: function (x, y) { aim.x = x; aim.y = y; aim.inside = true; },
     takeGesture: function () { return gestureQ.length ? gestureQ.shift() : null; },
 
     bindPointer: function (canvas) {
@@ -86,7 +88,7 @@
         if (count(pointers) < 2) { aim.x = p.x; aim.y = p.y; aim.inside = true; }
         if (pinch.active && count(pointers) >= 2 && !pinch.fired) {
           var d = twoDist();
-          if (d - pinch.start > 40) { gestureQ.push({ kind: "in" }); pinch.fired = true; }
+          if (d - pinch.start > 40) { var m = twoMid() || p; gestureQ.push({ kind: "in", x: m.x, y: m.y }); pinch.fired = true; }
           else if (pinch.start - d > 40) { gestureQ.push({ kind: "out" }); pinch.fired = true; }
         }
       });
@@ -101,7 +103,7 @@
         // Double-click / double-tap toggles the scope. A single tap does NOT
         // fire (the reticle just stays where it was) — firing is the SHOT key/button.
         if (now - lastTap.t < 350 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 30) {
-          gestureQ.push({ kind: "toggle" });
+          gestureQ.push({ kind: "toggle", x: p.x, y: p.y });
           lastTap.t = 0;
         } else {
           lastTap = { t: now, x: p.x, y: p.y };
