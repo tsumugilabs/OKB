@@ -1,0 +1,208 @@
+/* OKB — story-driven sniper shooter. Styles adapted from the Elevator Action
+   engine (overlay / HUD structure), re-themed for a spy-noir sniper mood. */
+
+:root {
+  --bg: #05070c;
+  --panel: rgba(10, 13, 20, 0.92);
+  --ink: #e6ecf5;
+  --accent: #ff4040;
+  --gold: #ffd166;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: radial-gradient(circle at 50% 0%, #10161f, var(--bg));
+  color: var(--ink);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game-wrapper {
+  max-width: 512px;
+  margin: 0 auto;
+  padding: 10px;
+}
+
+#hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 4px;
+  font: 12px/1 "Courier New", monospace;
+  letter-spacing: 0.5px;
+  color: #9fb0c8;
+}
+.hud-item b { color: var(--ink); }
+#hud-targets, #hud-targets-total { color: var(--accent); }
+#hud-cover { color: #4fd28a; }
+
+#sound-toggle {
+  margin-left: auto;
+  background: #141a24;
+  color: var(--ink);
+  border: 1px solid #2a3446;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 512 / 480;
+  background: #05070c;
+  border: 1px solid #1c2636;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#action-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.act-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px;
+  border: 1px solid #2a3446;
+  border-radius: 10px;
+  background: #141a24;
+  color: var(--ink);
+  font: 700 18px/1 "Courier New", monospace;
+  letter-spacing: 2px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: transform 0.05s ease, filter 0.1s ease, background 0.1s ease;
+}
+.act-btn small { font: 400 10px/1 system-ui, sans-serif; letter-spacing: 0; color: #7d8ba3; }
+.act-btn.shot { background: #3a1620; border-color: #7a2a3a; color: #ff8a8a; }
+.act-btn.reload { background: #26210f; border-color: #6a5a24; color: #ffd166; }
+.act-btn:active, .act-btn.pressed { transform: translateY(1px); filter: brightness(1.25); }
+
+#hint {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  color: #6d7c93;
+  text-align: center;
+}
+
+/* ---- Overlays ---- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 22px;
+  text-align: center;
+  background: var(--panel);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+}
+.overlay.hidden { display: none; }
+
+.overlay h1 {
+  margin: 0;
+  font-size: 46px;
+  letter-spacing: 10px;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(255, 64, 64, 0.45);
+}
+.overlay .subtitle { margin: 0; color: #9fb0c8; font-size: 13px; letter-spacing: 2px; }
+.overlay .lede { margin: 4px 0; color: #c7d2e2; font-size: 13px; line-height: 1.7; }
+
+.overlay .controls {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  font-size: 12px;
+  color: #aeb9cc;
+  line-height: 2;
+}
+.overlay .controls b { color: var(--ink); }
+
+button {
+  font: bold 16px/1 system-ui, sans-serif;
+  color: #0a0d14;
+  background: var(--gold);
+  border: 0;
+  border-radius: 8px;
+  padding: 12px 26px;
+  cursor: pointer;
+  letter-spacing: 2px;
+  transition: transform 0.05s ease, filter 0.1s ease;
+}
+button:hover { filter: brightness(1.08); }
+button:active { transform: translateY(1px); }
+button.secondary { background: #26303f; color: var(--ink); }
+
+.over-btns { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+/* ---- Story panel ---- */
+
+.overlay.story { justify-content: flex-start; padding-top: 34px; cursor: pointer; }
+.overlay .chapter {
+  margin: 0 0 10px;
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: var(--gold);
+}
+.story-body {
+  max-width: 420px;
+  text-align: left;
+  min-height: 160px;
+}
+.story-body .line {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.9;
+  color: #5f6d82;
+  transition: color 0.25s ease;
+}
+.story-body .line.cur { color: #eef3fb; }
+.advance {
+  margin-top: auto;
+  font-size: 12px;
+  color: #8a97ab;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* ---- Result / stats ---- */
+
+.overlay .stats {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  font: 13px/2 "Courier New", monospace;
+  color: #aeb9cc;
+}
+.overlay .stats b { color: var(--gold); }
+.overlay.result.win h1 { color: #7fe6a6; text-shadow: 0 0 18px rgba(80, 210, 140, 0.4); }
+.overlay.result.over h1 { color: var(--accent); text-shadow: 0 0 18px rgba(255, 64, 64, 0.5); }
+
+@media (max-width: 400px) {
+  .overlay h1 { font-size: 36px; letter-spacing: 6px; }
+  #hud { font-size: 11px; gap: 4px 8px; }
+}

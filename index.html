@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>OKB — 護衛スナイパー</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d14'/%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%23ff4040' stroke-width='1'/%3E%3Cline x1='8' y1='1' x2='8' y2='15' stroke='%23ff4040' stroke-width='1'/%3E%3Cline x1='1' y1='8' x2='15' y2='8' stroke='%23ff4040' stroke-width='1'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="game-wrapper">
+    <header id="hud">
+      <span class="hud-item">CH <b id="hud-mission">1</b>/4</span>
+      <span class="hud-item">SCORE <b id="hud-score">0</b></span>
+      <span class="hud-item">HI <b id="hud-hi">0</b></span>
+      <span class="hud-item">護衛HP <b id="hud-hp">-</b>/<b id="hud-hp-max">-</b></span>
+      <span class="hud-item">進行 <b id="hud-dist">0</b>%</span>
+      <span class="hud-item"><b id="hud-note">誤射 0/3</b></span>
+      <button id="sound-toggle" type="button" title="サウンド ON/OFF (M)">🔊</button>
+    </header>
+
+    <div id="stage">
+      <canvas id="game" width="512" height="480"></canvas>
+
+      <div id="overlay" class="overlay menu">
+        <h1>OKB</h1>
+        <p class="subtitle">― 標的だけを、確実に ―</p>
+        <p class="lede">読み込み中…</p>
+      </div>
+    </div>
+
+    <div id="action-bar">
+      <button id="btn-reload" class="act-btn reload" type="button">RELOAD<small>R / スコープ解除</small></button>
+      <button id="btn-shot" class="act-btn shot" type="button">SHOT<small>Space / F</small></button>
+    </div>
+
+    <p id="hint">ダブルクリック／ピンチでスコープ ／ 照準はドラッグ ／ <b>SHOT</b>で発砲(Space/F) ／ <b>RELOAD</b>で再装填(R) ／ M: サウンド</p>
+  </div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/cutscene.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
